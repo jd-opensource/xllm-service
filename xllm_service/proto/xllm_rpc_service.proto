@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package xllm_service.proto;
+option cc_generic_services = true;
+
+message Empty {}
+
+message Status {
+  bool ok = 1;
+}
+
+message StatusSet {
+  repeated Status all_status = 1;
+}
+
+message StatusCode {
+  int32 status_code = 1;
+}
+
+enum InstanceType {
+  DEFAULT = 0;
+  PREFILL = 1;
+  DECODE = 2;
+}
+
+message WorkerKVAddr {
+  repeated uint64 layer_addrs = 1;
+}
+
+message InstanceMetaInfo {
+  // http server address currently
+  string name = 1;
+  // rpc server address
+  string rpc_address = 2;
+  optional InstanceType type = 3;
+  repeated uint64 cluster_ids = 4;
+  repeated string addrs = 8;
+  repeated int64 k_cache_ids = 5;
+  repeated int64 v_cache_ids = 6;
+  int32 dp_size = 7;
+}
+
+message KvCacheEvent {
+  repeated bytes stored_cache = 1;
+  repeated bytes removed_cache = 2;
+  repeated bytes offload_cache = 3;
+}
+
+message LoadMetrics {
+  uint64 waiting_requests_num = 1;
+  float gpu_cache_usage_perc = 2;
+}
+
+// TODO: add metainfo/metrics ?
+message HeartbeatRequest {
+  string name = 1;
+  KvCacheEvent cache_event = 2;
+  LoadMetrics load_metrics = 3;
+}
+
+message InstanceID {
+  string name = 1;
+}
+
+message InstanceIDs {
+  repeated string names = 1;
+}
+
+
+message OutputUsage {
+  // the number of tokens in the prompt.
+  int32 num_prompt_tokens = 1;
+  // the number of tokens in the generated completion.
+  int32 num_generated_tokens = 2;
+  // the total number of tokens used in the request (prompt + completion).
+  int32 num_total_tokens = 3;
+}
+
+message LogProbData {
+  // the text of the token
+  string token = 1;
+  // the token id
+  int32 token_id = 2;
+  // the log probability of the token
+  float logprob = 3;
+  // whether the token is finished
+  bool finished_token = 4;
+}
+
+message LogProb {
+  LogProbData log_prob_data = 1;
+  repeated LogProbData top_logprobs = 2;
+}
+
+message SequenceOutput {
+  // the index of the sequence in the request.
+  int32 index = 1;
+  // the generated/delta text.
+  // delta text is the text generated since the last response for streaming.
+  string text = 2;
+  // the token ids of the generated text.
+  repeated int32 token_ids = 3;
+  // the reason the sequence finished.
+  string finish_reason = 4;
+  // log probabilities of the generated tokens.
+  repeated LogProb logprobs = 5;
+}
+
+message GenerationStatus {
+  int32 status_code = 1;
+  string status_msg = 2;
+}
+
+// Stream response token to prefill instance from decode.
+message DisaggStreamGeneration {
+  // req id
+  string req_id = 1;
+  // req id which is generated in xllm service.
+  string service_req_id = 2;
+  // the status of the request
+  GenerationStatus gen_status = 3;
+  // maybe multi sequences in the request
+  repeated SequenceOutput outputs = 4;
+  OutputUsage usage = 5;
+  bool finished = 6;
+}
+
+message DisaggStreamGenerations {
+  repeated DisaggStreamGeneration gens = 1;
+}
+
+message ServiceConfig {
+  bool enable_decode_response_to_service = 1;
+}
+
+service XllmRpcService {
+  rpc Hello(Empty) returns (Status) {}
+  rpc RegisterInstance(InstanceMetaInfo) returns (StatusCode) {}
+  rpc GetInstanceInfo(InstanceID) returns (InstanceMetaInfo) {}
+  rpc Heartbeat(HeartbeatRequest) returns (Status) {}
+  rpc GetStaticDecodeList(InstanceID) returns (InstanceIDs) {}
+  rpc GetConfig(Empty) returns (ServiceConfig) {}
+
+  // xllm service receive response from decode instance directly in disagg pd mode.
+  // This can eliminate the cost brought by forwarding through prefill.
+  rpc Generations(DisaggStreamGenerations) returns (StatusSet) {}
+}
+

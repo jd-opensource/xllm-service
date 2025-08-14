@@ -1,0 +1,93 @@
+{
+  "name": "xllm",
+  "version": "0.0.1",
+  "dependencies": [
+    {
+      "name": "abseil",
+      "version>=": "20230125.3"
+    },
+    {
+      "name": "boost-asio",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-algorithm",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-beast",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-thread",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-filesystem",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-chrono",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-atomic",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-random",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "protobuf",
+      "version>=": "3.21.12",
+      "features": ["zlib"]
+    },
+    {
+      "name": "gflags",
+      "version>=": "2.2.2#7"
+    },
+    {
+      "name": "gtest",
+      "version>=": "1.13.0"
+    },
+    {
+      "name": "glog",
+      "version>=": "0.6.0#2"
+    },
+    {
+      "name": "grpc",
+      "version>=": "1.51.1",
+      "default-features": false
+    },
+    {
+      "name": "leveldb",
+      "version>=": "1.23",
+      "default-features": false
+    },
+    {
+      "name": "openssl",
+      "version>=": "3.2.1"
+    },
+    {
+      "name": "snappy",
+      "version>=": "1.1.10"
+    },
+    {
+      "name": "nlohmann-json",
+      "version>=": "3.11.2",
+      "default-features": false
+    },
+    {
+      "name": "zlib" ,
+      "version>=": "1.3.1"
+    },
+    {
+      "name": "re2",
+      "version>=": "2023-07-01",
+      "default-features": false
+    }
+  ],
+  "builtin-baseline": "fba75d09065fcc76a25dcf386b1d00d33f5175af"
+}
+

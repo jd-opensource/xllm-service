@@ -1,0 +1,13 @@
+Language: Cpp
+BasedOnStyle: Google
+UseTab: Never
+IndentWidth: 2
+ColumnLimit: 80
+
+BinPackParameters: false
+BinPackArguments: false
+ExperimentalAutoDetectBinPacking: false
+AllowAllParametersOfDeclarationOnNextLine: false
+DerivePointerAlignment: false
+PointerAlignment: Left
+...

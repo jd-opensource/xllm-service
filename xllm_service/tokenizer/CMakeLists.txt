@@ -1,0 +1,30 @@
+include(cc_library)
+include(cc_test)
+
+add_subdirectory(tokenizers)
+
+cc_library(
+  NAME 
+    tokenizer
+  HDRS
+    hf_tokenizer.h
+    sentencepiece_tokenizer.h
+    tiktoken_tokenizer.h
+    tokenizer_args_loader.h
+    tokenizer_args.h
+    tokenizer.h
+  SRCS
+    hf_tokenizer.cpp
+    sentencepiece_tokenizer.cpp
+    tiktoken_tokenizer.cpp
+    tokenizer_args_loader.cpp
+  DEPS
+    :common
+    sentencepiece
+    absl::flat_hash_map
+    absl::strings
+    glog::glog
+    rust_tokenizers
+    re2::re2
+    nlohmann_json::nlohmann_json
+)

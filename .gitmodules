@@ -1,0 +1,18 @@
+[submodule "third_party/brpc"]
+	path = third_party/brpc
+	url = https://gitcode.com/xLLM-AI/brpc.git
+        branch = 1.12.1_cmake
+[submodule "third_party/etcd_cpp_apiv3"]
+	path = third_party/etcd_cpp_apiv3
+	url = https://gitcode.com/xLLM-AI/etcd-cpp-apiv3.git
+        branch = v0.15.4
+[submodule "third_party/cpprestsdk"]
+	path = third_party/cpprestsdk
+	url = https://gitcode.com/xLLM-AI/cpprestsdk.git
+        branch = v2.10.19
+[submodule "third_party/sentencepiece"]
+	path = third_party/sentencepiece
+	url = https://gitcode.com/xLLM-AI/sentencepiece.git
+[submodule "third_party/minja"]
+	path = third_party/minja
+	url = https://gitcode.com/xLLM-AI/minja.git

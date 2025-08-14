@@ -1,0 +1,188 @@
+syntax = "proto3";
+
+package xllm_service.llm.proto;
+option cc_enable_arenas = true;
+
+import "common.proto";
+
+message ChatMessage {
+  // the role of the messages author. One of "system", "user", "assistant".
+  optional string role = 1;
+
+  // the content of the message. null for assistant messages with function calls.
+  optional string content = 2;
+
+  // the name of the messages author. only used for function calls.
+  // string name = 3;
+
+  // TODO: add function call support
+  // FunctionCall function_call = 4;
+}
+
+
+// Next Id: 25
+message ChatRequest {
+
+  // ID of the model to use. You can use the ListModels endpoint to list available models.
+  string model = 1;
+
+  // A list of messages comprising the conversation so far.
+  repeated ChatMessage messages = 2;
+
+  // the number of sequence to generate server-side and returns the "best". default = None
+  // Results can't be streamed.
+  // when used with n, best_of controls the number of candidate completions and n specifies
+  // how many to return. best_of must be greater than or equal to n.
+  optional uint32 best_of = 3;
+
+  // the maximum number of tokens to generate in the chat completion. default = 16
+  optional uint32 max_tokens = 10;
+
+  // number of chat completion choices to generate for each input message. default = 1
+  optional uint32 n = 7;
+
+  // whether to stream partial completions back as they are generated. default = false
+  optional bool stream = 8; 
+
+  // options for streaming response. Only set this when you set stream: true
+  optional StreamOptions stream_options = 23;
+
+  // TODO: a list of functions the model may generate JSON inputs for.
+  // repeated Function function = 3;
+
+  // TODO: Controls how the model responses to function calls. default = "none"
+  // "none" - the model will ignore function calls.
+  // "auto" - the model can pick between an end-user or calling a function.
+  // string function_call = 4;
+
+  // temperature of the sampling, between [0, 2]. default = 0.0
+  // higher value will make the ouput more random, while a lower value will make it more deterministic.
+  // it is recommended altering this or top_p but not both.
+  optional float temperature = 5;
+
+  // values between [-2.0, 2.0]. default = 0.0
+  // Positive values penalize new tokens based on their existing in the text so far, increasing 
+  // the model's likelihood to talk about new topics.
+  optional float presence_penalty = 11;
+
+  // values between [0.0, 2.0]. default = 0.0
+  // Positive values penalize new tokens based on their existing frequency in the text so far,
+  // decreasing the model's likelihood to repeat the same line verbatim.
+  optional float frequency_penalty = 12;
+
+  // repetition penalty to penalize new tokens based on their occurence in the
+  // text. values > 1.0 encourage the model to use new tokens, while values
+  // < 1.0 encourage the model to repeat tokens. default = 1.0
+  optional float repetition_penalty = 17;
+
+  // top_p sampling cutoff, between [0, 1.0]. default = 1.0
+  optional float top_p = 6;
+
+  // top_k sampling cutoff, default = -1 (no cutoff)
+  optional int64 top_k = 18;
+
+  // whether to include the log probabilities of output tokens in the response. default = false
+  optional bool logprobs = 21;
+
+  // the number of log probabilities to include in the response, between [0, 20]. default = 0
+  optional int32 top_logprobs = 22;
+
+  // TODO: logit_bias
+  // modify the likelihood of specified tokens appearing in the completion.
+  // map<int64, float> logit_bias = 13;
+
+  // A unique identifier representing your end-user, which can help system to monitor and detect abuse.
+  string user = 14;
+
+  // whether to skip special tokens in the output. default = true
+  optional bool skip_special_tokens = 19;
+
+  // whether to ignore the end of sequence token. default = false.
+  optional bool ignore_eos = 20;
+
+  // up to 4 sequences where the API will stop generating further tokens.
+  repeated string stop = 9;
+
+  // the list of token ids where the API will stop generating further tokens.
+  repeated int32 stop_token_ids = 16;
+
+  optional string request_id = 24;
+
+  optional string service_request_id = 25;
+
+  Routing routing = 28;
+}
+
+message ChatLogProbData {
+  // token
+  optional string token = 1;
+
+  // the token id.
+  optional int32 token_id = 2 [json_name="token_id"];
+
+  // the log probability of the token.
+  optional float logprob = 3;
+
+  // repeated int32 bytes = 4;
+}
+
+message ChatLogProb {
+  // token
+  optional string token = 1;
+
+  // the token id.
+  optional int32 token_id = 2 [json_name="token_id"];
+
+  // the log probability of the token.
+  optional float logprob = 3;
+
+  // repeated int32 bytes = 4;
+
+  // the log probability of top tokens.
+  repeated ChatLogProbData top_logprobs = 5 [json_name="top_logprobs"];
+}
+
+message ChatLogProbs {
+  repeated ChatLogProb content = 1;
+}
+
+message ChatChoice {
+  // the index of the choice in the list of choices.
+  optional uint32 index = 1;
+
+  // A chat completion delta generated by streamed model responses.
+  optional ChatMessage delta = 2;
+
+  // the message generated by the model.
+  optional ChatMessage message = 3;
+
+  // the reason of the model stoped generating tokens.
+  // "stop" - the model hit a natural stop point or a provided stop sequence.
+  // "length" - the maximum number of tokens specified in the request was reached.
+  // "function_call" - the model called a function.
+  optional string finish_reason = 4 [json_name="finish_reason"];
+
+  // the log probabilities of output tokens.
+  optional ChatLogProbs logprobs = 5;
+}
+
+message ChatResponse {
+  // unique id for the chat completion.
+  string id = 1;
+
+  // the object type, which is always "chat.completion[.chunk]".
+  string object = 2;
+
+  // the unix timestamp (in seconds) of when the chat completion was created.
+  uint32 created = 3;
+
+  // the model used for the completion
+  string model = 4;
+
+  // list of generated completion choices for the input prompt
+  repeated ChatChoice choices = 5;
+
+  // usage statistics for the completion request.
+  Usage usage = 6;
+}
+

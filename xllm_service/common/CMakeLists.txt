@@ -1,0 +1,34 @@
+include(cc_library)
+
+cc_library(
+  NAME
+  common
+  HDRS
+    call_data.h
+    closure_guard.h
+    concurrent_queue.h
+    global_gflags.h
+    json_reader.h
+    macros.h
+    slice.h
+    threadpool.h
+    types.h
+    utils.h
+    xllm/output.h
+    xllm/status.h
+    xllm/uuid.h
+  SRCS
+    global_gflags.cpp
+    json_reader.cpp
+    threadpool.cpp
+    utils.cpp
+    xllm/uuid.cpp
+  DEPS
+    absl::random_random
+    absl::strings
+    glog::glog
+    gflags::gflags
+    nlohmann_json::nlohmann_json
+)
+target_link_libraries(common PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+add_dependencies(common brpc-static)

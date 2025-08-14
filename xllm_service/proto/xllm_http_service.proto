@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package xllm_service.proto;
+option cc_enable_arenas = true;
+option cc_generic_services = true;
+
+message HttpHelloRequest {
+  string ping = 1;
+}
+
+message HttpHelloResponse {
+  string pong = 1;
+}
+
+message HttpRequest {
+}
+
+message HttpResponse {
+}
+
+service XllmHttpService {
+  rpc Hello(HttpHelloRequest) returns (HttpHelloResponse) {}
+  rpc Completions (HttpRequest) returns (HttpResponse) {}
+  rpc ChatCompletions (HttpRequest) returns (HttpResponse) {}
+  rpc Embeddings (HttpRequest) returns (HttpResponse) {}
+  rpc Models (HttpRequest) returns (HttpResponse) {}
+  rpc Metrics (HttpRequest) returns (HttpResponse) {}
+}
