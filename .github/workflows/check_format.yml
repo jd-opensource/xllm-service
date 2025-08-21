@@ -1,0 +1,58 @@
+name: CheckFormat
+on: 
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['xllm_service/**']
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: ['xllm_service/**']
+
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install clang-format
+        run: |
+          # use apt-install
+          sudo apt-get update && sudo apt-get install -y clang-format  colordiff
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine base commit for comparison
+        id: get_base_commit
+        run: |
+          # pull_request action
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base_commit=${{ github.event.pull_request.base.sha }}" >> $GITHUB_OUTPUT
+          else
+            # push action
+            echo "base_commit=${{ github.sha }}~1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check code format
+        shell: /usr/bin/bash {0}
+        run: |
+          BASE_COMMIT="${{ steps.get_base_commit.outputs.base_commit }}"
+          
+          # do clang-format
+          diff=$(git-clang-format \
+            --extensions="c,h,cc,cp,cpp,c++,cxx,hh,hpp,hxx,inc,cu,cuh" \
+            --commit "$BASE_COMMIT" \
+            --diff)
+
+          # check diff 
+          if [ "$diff" = "no modified files to format" ] || [ "$diff" = "clang-format did not modify any files" ]; then
+            echo "✅ Code format is correct"
+            exit 0
+          fi
+
+          printf "\n❌ You have introduced coding style breakages.\n"
+
+          printf "\n\033[1mSuggested changes:\n\n"
+          echo "$diff"
+          exit 1
