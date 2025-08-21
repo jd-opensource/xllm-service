@@ -106,7 +106,7 @@ cmake .. && make -j 8
 
 ## 7. 致谢
 
-感谢以下为xLLM-Servic作出贡献的[开发者](https://github.com/xxx/xLLM/graphs/contributors)
+感谢以下为xLLM-Servic作出贡献的[开发者](https://github.com/jd-opensource/xllm-service/graphs/contributors)
 <a href="https://github.com/jd-opensource/xllm-service/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=jd-opensource/xllm-service" />
 </a>
@@ -114,7 +114,7 @@ cmake .. && make -j 8
 ---
 
 ## 8. 许可证
-[Apache License]( ./LICENSE.md)
+[Apache License](LICENSE)
 
 #### xLLM-Service 由 JD.com 提供 
 #### 感谢您对xLLM的关心与贡献!

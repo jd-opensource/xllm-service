@@ -115,7 +115,7 @@ Welcome to contact us:
 ---
 ## 7. About the Contributors
 
-Thanks to all the following [developers](https://github.com/xx/xx/graphs/contributors) who have contributed to xLLM.
+Thanks to all the following [developers](https://github.com/jd-opensource/xllm-service/graphs/contributors) who have contributed to xLLM.
 <a href="https://github.com/jd-opensource/xllm-service/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=jd-opensource/xllm-service" />
 </a>
@@ -124,7 +124,7 @@ Thanks to all the following [developers](https://github.com/xx/xx/graphs/contrib
 
 ## 8. License
 
-[Apache License]( ./LICENSE.md)
+[Apache License](LICENSE)
 
 #### xLLM is provided by JD.com 
 #### Thanks for your Contributions!
