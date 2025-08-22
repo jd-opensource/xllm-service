@@ -14,6 +14,11 @@ limitations under the License. -->
 
 [English](./README.md) | [中文](./README_zh.md)
 
+
+<p align="center">
+    <img src="docs/assets/xllm_service_title.png" alt="xLLM" style="width:50%; height:auto;">
+</p>
+
 ## 1. 简介
 **xLLM-service** 是一个基于 xLLM 推理引擎开发的服务层框架，为集群化部署提供高效率、高容错、高灵活性的大模型推理服务。
 
