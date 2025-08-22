@@ -1,24 +1,28 @@
 include(cc_binary)
 include(cc_library)
 include(cc_test)
+add_subdirectory(loadbalance_policy)
 
 cc_library(
   NAME
   xllm_rpc_service
   HDRS
-    disagg_pd_policy.h
+    scheduler.h
     etcd_client.h
     instance_mgr.h
+    global_kvcache_mgr.h
     response_handler.h
     service.h
   SRCS
-    disagg_pd_policy.cpp
+    scheduler.cpp
     etcd_client.cpp
     instance_mgr.cpp
+    global_kvcache_mgr.cpp
     response_handler.cpp
     service.cpp
   DEPS
     :common
+    :loadbalance_policy
     absl::random_random
     absl::strings
     cpprest
