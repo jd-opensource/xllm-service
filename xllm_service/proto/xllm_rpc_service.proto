@@ -51,7 +51,6 @@ message LoadMetrics {
   float gpu_cache_usage_perc = 2;
 }
 
-// TODO: add metainfo/metrics ?
 message HeartbeatRequest {
   string name = 1;
   KvCacheEvent cache_event = 2;
