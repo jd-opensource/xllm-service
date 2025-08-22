@@ -13,11 +13,13 @@ cc_library(
     tokenizer_args_loader.h
     tokenizer_args.h
     tokenizer.h
+    tokenizer_factory.h
   SRCS
     hf_tokenizer.cpp
     sentencepiece_tokenizer.cpp
     tiktoken_tokenizer.cpp
     tokenizer_args_loader.cpp
+    tokenizer_factory.cpp
   DEPS
     :common
     sentencepiece

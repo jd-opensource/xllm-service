@@ -1,4 +1,4 @@
-#include "tokenizer/tokenizer_args_loader.h"
+#include "tokenizer_args_loader.h"
 
 #include <glog/logging.h>
 
@@ -59,7 +59,7 @@ void TokenizerArgsLoader::load(const std::string& model_type,
   } else if (model_type == QWEN) {
     load_qwen_args(tokenizer_args);
   } else {
-    LOG(ERROR) << "unrecognized model type: " << model_type;
+    LOG(WARNING) << "unrecognized model type: " << model_type;
   }
 }
 

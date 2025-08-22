@@ -1,4 +1,4 @@
-#include "tokenizer/sentencepiece_tokenizer.h"
+#include "sentencepiece_tokenizer.h"
 
 #include <absl/strings/str_cat.h>
 #include <absl/strings/str_join.h>
