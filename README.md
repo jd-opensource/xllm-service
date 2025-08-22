@@ -14,6 +14,11 @@ limitations under the License. -->
 
 [English](./README.md) | [中文](./README_zh.md)
 
+<p align="center">
+    <img src="docs/assets/xllm_service_title.png" alt="xLLM" style="width:50%; height:auto;">
+</p>
+
+
 ## 1. Project Overview
 **xLLM-service** is a service-layer framework developed based on the **xLLM** inference engine, providing efficient, fault-tolerant, and flexible LLM inference services for clustered deployment.
 
