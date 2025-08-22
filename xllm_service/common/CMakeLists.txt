@@ -14,6 +14,7 @@ cc_library(
     threadpool.h
     types.h
     utils.h
+    hash_util.h
     xllm/output.h
     xllm/status.h
     xllm/uuid.h
@@ -22,6 +23,7 @@ cc_library(
     json_reader.cpp
     threadpool.cpp
     utils.cpp
+    hash_util.cpp
     xllm/uuid.cpp
   DEPS
     absl::random_random
@@ -29,6 +31,6 @@ cc_library(
     glog::glog
     gflags::gflags
     nlohmann_json::nlohmann_json
+    SMHasherSupport
 )
-target_link_libraries(common PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 add_dependencies(common brpc-static)
