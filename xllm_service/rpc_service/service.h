@@ -26,6 +26,7 @@ limitations under the License.
 #include "completion.pb.h"
 #include "instance_mgr.h"
 #include "response_handler.h"
+#include "scheduler.h"
 #include "xllm_rpc_service.pb.h"
 
 namespace xllm_service {
@@ -41,24 +42,16 @@ struct ServiceConfig {
 
 class XllmRpcServiceImpl final {
  public:
-  XllmRpcServiceImpl(const RpcServiceConfig& config);
+  XllmRpcServiceImpl(const RpcServiceConfig& rpc_config,
+                     const ModelConfig& model_config,
+                     const HttpServiceConfig& http_config);
   ~XllmRpcServiceImpl();
-  ErrorCode heartbeat(const std::string& instance_name);
 
-  ErrorCode register_instance(const std::string& instance_name,
-                              const InstanceMetaInfo& metainfo);
-  ErrorCode update_instance_metainfo(const std::string& instance_name,
-                                     const InstanceMetaInfo& metainfo);
+  void heartbeat(const proto::HeartbeatRequest* req);
 
   InstanceMetaInfo get_instance_info(const std::string& instance_name);
 
   ServiceConfig get_config();
-
-  // methods for master
-
-  // select instances(prefill/decode/default etc.) to handle request
-  // according the disagg pd policy (or some other policies.).
-  InstancesPair select_instances_pair(bool only_prefill = false);
 
   std::vector<std::string> get_static_decode_list(
       const std::string& prefill_name);
@@ -82,9 +75,13 @@ class XllmRpcServiceImpl final {
                           bool include_usage);
   void finish_request(const std::string& service_request_id);
 
- private:
-  std::unique_ptr<InstanceMgr> instance_mgr_;
+  bool schedule(const std::string& prompt, SchduleResult* res);
 
+  bool schedule(const ChatMessages& messages, SchduleResult* res);
+
+  std::shared_ptr<brpc::Channel> get_channel(const std::string& target_name);
+
+ private:
   // `request` -> `callback` map
   std::unordered_map<std::string, OutputCallback> callbacks_;
   std::mutex callback_mutex_;
@@ -114,6 +111,9 @@ class XllmRpcServiceImpl final {
 
   // used when receive token from decode instance.
   ResponseHandler response_handler_;
+
+  // instance discovery by register to etcd
+  std::unique_ptr<Scheduler> scheduler_;
 };
 
 // parse proto data and call XllmRpcService
@@ -126,11 +126,6 @@ class XllmRpcService : public proto::XllmRpcService {
                      const proto::Empty* req,
                      proto::Status* resp,
                      google::protobuf::Closure* done) override;
-
-  virtual void RegisterInstance(google::protobuf::RpcController* cntl_base,
-                                const proto::InstanceMetaInfo* req,
-                                proto::StatusCode* resp,
-                                google::protobuf::Closure* done) override;
 
   virtual void Heartbeat(google::protobuf::RpcController* cntl_base,
                          const proto::HeartbeatRequest* req,

@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "master.h"
 
+#include <boost/asio.hpp>
 #include <csignal>
 
 #include "common/global_gflags.h"
@@ -35,14 +36,26 @@ Master::Master(const ServerOptions& server_options)
   rpc_config.detect_disconnected_instance_interval =
       server_options.detect_disconnected_instance_interval;
 
-  rpc_service_impl_ =
-      std::make_shared<xllm_service::XllmRpcServiceImpl>(rpc_config);
+  rpc_config.service_name = server_options_.rpc_server_host + ":" +
+                            std::to_string(server_options_.rpc_port);
+
+  ModelConfig model_config;
+  model_config.block_size = server_options.block_size;
+  model_config.model_type = server_options.model_type;
+  model_config.tokenizer_path = server_options.tokenizer_path;
+
+  xllm_service::HttpServiceConfig http_config;
+  http_config.num_threads = server_options.http_num_threads;
+  http_config.timeout_ms = server_options.timeout_ms;
+  http_config.test_instance_addr = server_options.test_instance_addr;
+  http_config.enable_request_trace = server_options.enable_request_trace;
+
+  rpc_service_impl_ = std::make_shared<xllm_service::XllmRpcServiceImpl>(
+      rpc_config, model_config, http_config);
+
   rpc_service_ =
       std::make_unique<xllm_service::XllmRpcService>(rpc_service_impl_);
 
-  HttpServiceConfig http_config;
-  http_config.num_threads = server_options.http_num_threads;
-  http_config.enable_request_trace = server_options.enable_request_trace;
   http_service_ = std::make_unique<xllm_service::XllmHttpServiceImpl>(
       rpc_service_impl_, http_config);
 }
@@ -160,13 +173,37 @@ void shutdown_handler(int signal) {
   exit(1);
 }
 
+std::string get_local_ip() {
+  using namespace boost::asio;
+  io_service io;
+  ip::tcp::resolver resolver(io);
+  ip::tcp::resolver::query query(ip::host_name(), "");
+  ip::tcp::resolver::iterator iter = resolver.resolve(query);
+  ip::tcp::resolver::iterator end;
+
+  while (iter != end) {
+    ip::address addr = iter->endpoint().address();
+    if (!addr.is_loopback() && addr.is_v4()) {
+      return addr.to_string();
+    }
+    ++iter;
+  }
+
+  LOG(FATAL) << "Get local ip faill!";
+  return "";
+}
+
 int main(int argc, char* argv[]) {
   // Initialize gflags
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   // Initialize glog
   google::InitGoogleLogging(argv[0]);
-  FLAGS_logtostderr = true;
+  // FLAGS_logtostderr = true;
+
+  LOG(INFO) << "Dump all gflags: " << std::endl
+            << google::CommandlineFlagsIntoString();
+  google::FlushLogFiles(google::INFO);
 
   LOG(INFO) << "Starting xllm master service.";
 
@@ -191,7 +228,7 @@ int main(int argc, char* argv[]) {
   server_options.http_idle_timeout_s = FLAGS_http_server_idle_timeout_s;
   server_options.http_num_threads = FLAGS_http_server_num_threads;
   server_options.http_max_concurrency = FLAGS_http_server_max_concurrency;
-  server_options.rpc_server_host = FLAGS_rpc_server_host;
+  server_options.rpc_server_host = get_local_ip();
   server_options.rpc_port = FLAGS_rpc_server_port;
   server_options.rpc_idle_timeout_s = FLAGS_rpc_server_idle_timeout_s;
   server_options.rpc_num_threads = FLAGS_rpc_server_num_threads;
@@ -201,9 +238,15 @@ int main(int argc, char* argv[]) {
   server_options.detect_disconnected_instance_interval =
       FLAGS_detect_disconnected_instance_interval;
   server_options.enable_request_trace = FLAGS_enable_request_trace;
+
+  server_options.tokenizer_path = FLAGS_tokenizer_path;
   server_options.block_size = FLAGS_block_size;
   server_options.model_type = FLAGS_model_type;
   server_options.tokenizer_path = FLAGS_tokenizer_path;
+
+  server_options.num_threads = FLAGS_num_threads;
+  server_options.timeout_ms = FLAGS_timeout_ms;
+  server_options.test_instance_addr = FLAGS_test_instance_addr;
 
   xllm_service::Master master(server_options);
 

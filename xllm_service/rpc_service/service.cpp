@@ -53,42 +53,45 @@ grpc::StatusCode to_grpc_status_code(llm::StatusCode code) {
 }
 }  // namespace
 
-XllmRpcServiceImpl::XllmRpcServiceImpl(const RpcServiceConfig& config) {
+XllmRpcServiceImpl::XllmRpcServiceImpl(const RpcServiceConfig& rpc_config,
+                                       const ModelConfig& model_config,
+                                       const HttpServiceConfig& http_config) {
   enable_decode_response_to_service_ =
       utils::get_bool_env("ENABLE_DECODE_RESPONSE_TO_SERVICE", false);
-  instance_mgr_ = std::make_unique<InstanceMgr>(config);
+
+  scheduler_ =
+      std::make_unique<Scheduler>(rpc_config, model_config, http_config);
 }
 
-XllmRpcServiceImpl::~XllmRpcServiceImpl() {}
+XllmRpcServiceImpl::~XllmRpcServiceImpl() { scheduler_->exited(); }
 
-ErrorCode XllmRpcServiceImpl::heartbeat(const std::string& instance_name) {
-  return instance_mgr_->heartbeat(instance_name);
-}
-
-ErrorCode XllmRpcServiceImpl::register_instance(
-    const std::string& instance_name,
-    const InstanceMetaInfo& metainfo) {
-  return instance_mgr_->register_instance(instance_name, metainfo);
-}
-
-ErrorCode XllmRpcServiceImpl::update_instance_metainfo(
-    const std::string& instance_name,
-    const InstanceMetaInfo& metainfo) {
-  return instance_mgr_->update_instance_metainfo(instance_name, metainfo);
-}
-
-InstancesPair XllmRpcServiceImpl::select_instances_pair(bool only_prefill) {
-  return instance_mgr_->select_instances_pair(only_prefill);
+void XllmRpcServiceImpl::heartbeat(const proto::HeartbeatRequest* req) {
+  scheduler_->handle_instance_heartbeat(req);
 }
 
 InstanceMetaInfo XllmRpcServiceImpl::get_instance_info(
     const std::string& instance_name) {
-  return instance_mgr_->get_instance_info(instance_name);
+  return scheduler_->get_instance_info(instance_name);
 }
 
 std::vector<std::string> XllmRpcServiceImpl::get_static_decode_list(
     const std::string& instance_name) {
-  return instance_mgr_->get_static_decode_list(instance_name);
+  return scheduler_->get_static_decode_list(instance_name);
+}
+
+bool XllmRpcServiceImpl::schedule(const std::string& prompt,
+                                  SchduleResult* res) {
+  return scheduler_->schedule(prompt, res);
+}
+
+bool XllmRpcServiceImpl::schedule(const ChatMessages& messages,
+                                  SchduleResult* res) {
+  return scheduler_->schedule(messages, res);
+}
+
+std::shared_ptr<brpc::Channel> XllmRpcServiceImpl::get_channel(
+    const std::string& target_name) {
+  return scheduler_->get_channel(target_name);
 }
 
 bool XllmRpcServiceImpl::handle_generation(
@@ -274,32 +277,6 @@ void XllmRpcService::Hello(google::protobuf::RpcController* cntl_base,
   resp->set_ok(true);
 }
 
-void XllmRpcService::RegisterInstance(
-    google::protobuf::RpcController* cntl_base,
-    const proto::InstanceMetaInfo* req,
-    proto::StatusCode* resp,
-    google::protobuf::Closure* done) {
-  brpc::ClosureGuard done_guard(done);
-  InstanceType type = InstanceType::DEFAULT;
-  if (req->has_type() && req->type() == proto::InstanceType::PREFILL) {
-    type = InstanceType::PREFILL;
-  } else if (req->has_type() && req->type() == proto::InstanceType::DECODE) {
-    type = InstanceType::DECODE;
-  }
-  InstanceMetaInfo metainfo(req->name(), req->rpc_address(), type);
-  metainfo.cluster_ids = std::vector<uint64_t>(req->cluster_ids().begin(),
-                                               req->cluster_ids().end());
-  metainfo.addrs =
-      std::vector<std::string>(req->addrs().begin(), req->addrs().end());
-  metainfo.k_cache_ids = std::vector<uint64_t>(req->k_cache_ids().begin(),
-                                               req->k_cache_ids().end());
-  metainfo.v_cache_ids = std::vector<uint64_t>(req->v_cache_ids().begin(),
-                                               req->v_cache_ids().end());
-  metainfo.dp_size = req->dp_size();
-  ErrorCode code = xllm_service_->register_instance(req->name(), metainfo);
-  resp->set_status_code(ConvertErrorCode::to_int(code));
-}
-
 void XllmRpcService::GetInstanceInfo(google::protobuf::RpcController* cntl_base,
                                      const proto::InstanceID* req,
                                      proto::InstanceMetaInfo* resp,
@@ -335,9 +312,7 @@ void XllmRpcService::Heartbeat(google::protobuf::RpcController* cntl_base,
                                proto::Status* resp,
                                google::protobuf::Closure* done) {
   brpc::ClosureGuard done_guard(done);
-  auto inst_name = req->name();
-  // TODO: handle req.cache_event and req.load_metrics
-  xllm_service_->heartbeat(inst_name);
+  xllm_service_->heartbeat(req);
   resp->set_ok(true);
 }
 

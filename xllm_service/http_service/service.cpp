@@ -63,56 +63,6 @@ XllmHttpServiceImpl::XllmHttpServiceImpl(const HttpServiceConfig& config)
 
 XllmHttpServiceImpl::~XllmHttpServiceImpl() {}
 
-bool XllmHttpServiceImpl::create_channel(const std::string& target_uri) {
-  std::lock_guard<std::mutex> guard(channel_mutex_);
-  if (cached_channels_.find(target_uri) == cached_channels_.end()) {
-    brpc::Channel* channel = new brpc::Channel();
-    brpc::ChannelOptions options;
-    // Add to params
-    options.protocol = "http";
-    options.timeout_ms = config_.timeout_ms; /*milliseconds*/
-    options.max_retry = 3;
-    std::string load_balancer = "";
-    if (channel->Init(target_uri.c_str(), load_balancer.c_str(), &options) !=
-        0) {
-      LOG(ERROR) << "Fail to initialize channel for " << target_uri;
-      return false;
-    }
-    cached_channels_[target_uri] = channel;
-  }
-
-  return true;
-}
-
-std::string XllmHttpServiceImpl::get_redirect_uri(bool only_prefill) {
-  std::string target_instance_addr;
-  if (!rpc_service_) {
-    // for testing
-    if (config_.test_instance_addr.empty()) {
-      LOG(ERROR) << "Rpc service is not start.";
-      return "";
-    }
-    target_instance_addr = config_.test_instance_addr;
-  } else {
-    InstancesPair instances_pair =
-        rpc_service_->select_instances_pair(only_prefill);
-    if (instances_pair.prefill_instance_http_addr.empty()) {
-      LOG(ERROR) << "No prefill instance available.";
-      return "";
-    }
-    target_instance_addr = instances_pair.prefill_instance_http_addr;
-
-    if (!only_prefill) {
-      if (instances_pair.decode_instance_http_addr.empty()) {
-        // TODO:
-      }
-      // TODO: add instances_pair.decode_instance_http_addr to request?
-    }
-  }
-
-  return target_instance_addr;
-}
-
 void XllmHttpServiceImpl::Hello(::google::protobuf::RpcController* controller,
                                 const proto::HttpHelloRequest* request,
                                 proto::HttpHelloResponse* response,
@@ -213,7 +163,8 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
 
   // async redistribute the request and wait the response
   // TODO: optimize the thread pool to async mode.
-  auto channel_ptr = cached_channels_[target_uri];
+  brpc::Channel* channel_ptr = rpc_service_->get_channel(target_uri).get();
+
   // send request to prefill instance.
   thread_pool_->schedule([this,
                           service_request_id,
@@ -375,24 +326,6 @@ void XllmHttpServiceImpl::post_serving(
   // create xllm_service request_id: service_request_id
   std::string service_request_id = generate_service_request_id(serving_method);
   json_value["service_request_id"] = service_request_id;
-  std::string req_attachment = json_value.dump();
-  request_tracer_->log(service_request_id, req_attachment);
-
-  // redistribute the request to the correct P/D instance
-  // TODO: redistribute policy to select the instance
-  std::string target_uri = get_redirect_uri();
-  if (target_uri.empty()) {
-    cntl->SetFailed(
-        "Internal runtime error, can not found a running instance.");
-    return;
-  }
-  if (cached_channels_.find(target_uri) == cached_channels_.end()) {
-    if (!create_channel(target_uri)) {
-      LOG(ERROR) << "Create channel failed, target_uri is " << target_uri;
-      cntl->SetFailed("Internal runtime error.");
-      return;
-    }
-  }
 
   std::function<void(const std::string&)> trace_callback;
   if (config_.enable_request_trace) {
@@ -403,33 +336,82 @@ void XllmHttpServiceImpl::post_serving(
     trace_callback = nullptr;
   }
 
+  SchduleResult schedule_res;
   if (serving_method == "/v1/completions") {
+    if (json_value.contains("prompt")) {
+      if (!rpc_service_->schedule(json_value.at("prompt").get<std::string>(),
+                                  &schedule_res)) {
+        cntl->SetFailed("Schedule fail!");
+        LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
+        return;
+      }
+    } else {
+      cntl->SetFailed("Input has no prompt!");
+      LOG(ERROR) << "Input has no prompt!";
+      return;
+    }
+    json_value["token_ids"] = schedule_res.token_ids;
+    json_value["routing"] = schedule_res.routing.serialize_to_json();
+
+    std::string req_attachment = json_value.dump();
     auto arena = response->GetArena();
     auto resp_pb =
         google::protobuf::Arena::CreateMessage<llm::proto::CompletionResponse>(
             arena);
     auto call_data = std::make_shared<CompletionCallData>(
-        cntl, stream, done_guard.release(), resp_pb, trace_callback);
+        cntl, stream, done_guard.release(), resp_pb);
     handle_v1_completions(call_data,
                           req_attachment,
                           service_request_id,
                           stream,
                           model,
                           include_usage,
-                          target_uri);
+                          schedule_res.routing.prefill_name);
   } else if (serving_method == "/v1/chat/completions") {
+    if (json_value.contains("messages") && json_value["messages"].is_array()) {
+      ChatMessages messages;
+      try {
+        const auto& msgs = json_value["messages"];
+        messages.reserve(msgs.size());
+        for (const auto& msg : msgs) {
+          if (msg.contains("role") && msg["role"].is_string() &&
+              msg.contains("content") && msg["content"].is_string()) {
+            messages.emplace_back(msg["role"].get<std::string>(),
+                                  msg["content"].get<std::string>());
+          }
+        }
+      } catch (const nlohmann::json::exception& e) {
+        cntl->SetFailed("Parse request fail, Invalid messages!");
+        LOG(ERROR) << "Parse request fail, Invalid messages!";
+        return;
+      }
+
+      if (!rpc_service_->schedule(messages, &schedule_res)) {
+        cntl->SetFailed("Schedule fail!");
+        LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
+        return;
+      }
+    } else {
+      cntl->SetFailed("Input has no messages!");
+      LOG(ERROR) << "Input has no messages!";
+      return;
+    }
+    json_value["token_ids"] = schedule_res.token_ids;
+    json_value["routing"] = schedule_res.routing.serialize_to_json();
+
+    std::string req_attachment = json_value.dump();
     auto arena = response->GetArena();
     auto resp_pb =
         google::protobuf::Arena::CreateMessage<llm::proto::ChatResponse>(arena);
     auto call_data = std::make_shared<ChatCallData>(
-        cntl, stream, done_guard.release(), resp_pb, trace_callback);
+        cntl, stream, done_guard.release(), resp_pb);
     handle_v1_chat_completions(call_data,
                                req_attachment,
                                service_request_id,
                                stream,
                                model,
                                include_usage,
-                               target_uri);
+                               schedule_res.routing.prefill_name);
   } else {
     LOG(ERROR) << "Not supported method: " << serving_method;
     cntl->SetFailed("Not supported method: " + serving_method);
@@ -471,22 +453,18 @@ void XllmHttpServiceImpl::get_serving(
   // done_guard.release());
   auto call_data = std::make_shared<CompletionCallData>(
       cntl, false, done_guard.release(), nullptr);
-  std::string target_uri = get_redirect_uri(true /*only_prefill*/);
-  if (target_uri.empty()) {
-    cntl->SetFailed(
-        "Internal runtime error, can not found a running instance.");
+
+  SchduleResult schedule_res;
+  if (!rpc_service_->schedule("", &schedule_res)) {
+    cntl->SetFailed("Schedule fail!");
+    LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
     return;
   }
-  if (cached_channels_.find(target_uri) == cached_channels_.end()) {
-    if (!create_channel(target_uri)) {
-      LOG(ERROR) << "Create channel failed, target_uri is " << target_uri;
-      cntl->SetFailed("Internal runtime error.");
-      return;
-    }
-  }
 
-  auto channel_ptr = cached_channels_[target_uri];
-  target_uri += serving_method;
+  brpc::Channel* channel_ptr =
+      rpc_service_->get_channel(schedule_res.routing.prefill_name).get();
+  std::string target_uri = schedule_res.routing.prefill_name + serving_method;
+
   thread_pool_->schedule(
       [/*req_attachment, */ call_data, cntl, channel_ptr, target_uri]() {
         brpc::Controller* redirect_cntl = new brpc::Controller();

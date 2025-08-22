@@ -77,8 +77,7 @@ class XllmHttpServiceImpl : public proto::XllmHttpService {
 
  private:
   bool create_channel(const std::string& target_uri);
-  // only prefill is true means only prefill instance is returned
-  std::string get_redirect_uri(bool only_prefill = false);
+
   void post_serving(const std::string& serving_method,
                     ::google::protobuf::RpcController* controller,
                     const proto::HttpRequest* request,
@@ -124,13 +123,8 @@ class XllmHttpServiceImpl : public proto::XllmHttpService {
   std::shared_ptr<XllmRpcServiceImpl> rpc_service_;
 
   std::unique_ptr<RequestTracer> request_tracer_;
-  // uri -> channel
-  // e.g. 127.0.0.1:9999/v1/completions -> channel1
-  //      127.0.0.1:9999/v1/chat/completions -> channel2
-  // NOTE: different methods to one instance has different channels
-  std::unordered_map<std::string, brpc::Channel*> cached_channels_;
+
   std::unique_ptr<ThreadPool> thread_pool_;
-  std::mutex channel_mutex_;
 
   // In disagg pd mode, we support receive generated token from
   // prefill or from decode directly.
