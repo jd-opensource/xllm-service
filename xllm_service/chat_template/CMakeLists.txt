@@ -6,8 +6,10 @@ cc_library (
     chat_template
   HDRS
     jinja_chat_template.h
+    chat_template_factory.h
   SRCS
     jinja_chat_template.cpp
+    chat_template_factory.cpp
   DEPS
     :minja
     :tokenizer
