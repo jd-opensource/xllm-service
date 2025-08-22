@@ -19,12 +19,22 @@ limitations under the License.
 
 #include <chrono>
 #include <cstdint>
+#include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
+#include "common/hash_util.h"
 #include "nlohmann/json.hpp"
 
 namespace xllm_service {
+
+struct CacheLocations;
+using Murmur3KeyCacheMap = std::unordered_map<Murmur3Key,
+                                              CacheLocations,
+                                              FixedStringKeyHash,
+                                              FixedStringKeyEqual>;
 
 struct HttpServiceConfig {
   int num_threads = 16;
@@ -37,13 +47,32 @@ struct RpcServiceConfig {
   std::string etcd_addr = "";
   std::string disagg_pd_policy = "";
   int detect_disconnected_instance_interval = 15;  // seconds
+  std::string service_name = "";
 };
 
-// instances pair for prefill and decode in disagg PD mode.
-struct InstancesPair {
-  std::string prefill_instance_http_addr = "";
-  // empty means no decode instance, only prefill instance is available
-  std::string decode_instance_http_addr = "";
+struct ModelConfig {
+  int32_t block_size = 16;
+  std::string model_type = "chatglm";
+  std::string tokenizer_path = "";
+};
+
+struct Routing {
+  std::string prefill_name;
+  std::string decode_name;
+
+  nlohmann::json serialize_to_json() const {
+    nlohmann::json json_val;
+    json_val["prefill_name"] = prefill_name;
+    json_val["decode_name"] = decode_name;
+    return json_val;
+  }
+
+  std::string debug_string() const { return serialize_to_json().dump(2); }
+};
+
+struct SchduleResult {
+  std::vector<int32_t> token_ids;
+  Routing routing;
 };
 
 enum class ErrorCode : int32_t {
@@ -72,6 +101,42 @@ enum class InstanceType : int8_t {
   DECODE = 2,
 };
 
+struct LoadMetrics {
+  LoadMetrics() : waiting_requests_num(0), gpu_cache_usage_perc(0){};
+  LoadMetrics(const uint64_t& waiting_reqs_num, const float& usage)
+      : waiting_requests_num(waiting_reqs_num), gpu_cache_usage_perc(usage){};
+
+  uint64_t waiting_requests_num;
+  float gpu_cache_usage_perc;
+
+  nlohmann::json serialize_to_json() const {
+    nlohmann::json json_val;
+    json_val["waiting_requests_num"] = waiting_requests_num;
+    json_val["gpu_cache_usage_perc"] = gpu_cache_usage_perc;
+    return json_val;
+  }
+
+  std::string debug_string() const { return serialize_to_json().dump(2); }
+
+  bool parse_from_json(const std::string& json_str) {
+    try {
+      nlohmann::json json_value = nlohmann::json::parse(json_str);
+
+      waiting_requests_num =
+          json_value.at("waiting_requests_num").get<uint64_t>();
+      gpu_cache_usage_perc = json_value.at("gpu_cache_usage_perc").get<float>();
+
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "json str:" << json_str
+                 << ", parse to loadmetrics error: " << e.what();
+      return false;
+    }
+    return true;
+  }
+
+  bool empty() const { return false; }
+};
+
 struct InstanceMetaInfo {
  public:
   InstanceMetaInfo() { set_init_timestamp(); }
@@ -98,6 +163,61 @@ struct InstanceMetaInfo {
   // latest heatbeat timestamp
   uint64_t latest_timestamp = 0;
 
+  nlohmann::json serialize_to_json() const {
+    nlohmann::json json_val;
+    json_val["name"] = name;
+    json_val["rpc_address"] = rpc_address;
+    json_val["type"] = int8_t(type);
+    json_val["addrs"] = addrs;
+    json_val["cluster_ids"] = cluster_ids;
+    json_val["k_cache_ids"] = k_cache_ids;
+    json_val["v_cache_ids"] = v_cache_ids;
+    json_val["dp_size"] = dp_size;
+    return json_val;
+  }
+
+  std::string debug_string() const { return serialize_to_json().dump(2); }
+
+  bool parse_from_json(const std::string& json_str) {
+    try {
+      nlohmann::json json_value = nlohmann::json::parse(json_str);
+      name = json_value.at("name").get<std::string>();
+      rpc_address = json_value.at("rpc_address").get<std::string>();
+      type = static_cast<InstanceType>(json_value.at("type").get<int8_t>());
+
+      for (const auto& item :
+           json_value.at("cluster_ids").get<std::vector<uint64_t>>()) {
+        cluster_ids.push_back(item);
+      }
+
+      for (const auto& item :
+           json_value.at("k_cache_ids").get<std::vector<uint64_t>>()) {
+        k_cache_ids.push_back(item);
+      }
+
+      for (const auto& item :
+           json_value.at("addrs").get<std::vector<std::string>>()) {
+        addrs.push_back(item);
+      }
+
+      for (const auto& item :
+           json_value.at("v_cache_ids").get<std::vector<uint64_t>>()) {
+        v_cache_ids.push_back(item);
+      }
+
+      dp_size = json_value.at("dp_size").get<int32_t>();
+
+      set_init_timestamp();
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "json str:" << json_str
+                 << ", parse to instancemetainfo error: " << e.what();
+      return false;
+    }
+    return true;
+  }
+
+  bool empty() const { return rpc_address == ""; }
+
  private:
   void set_init_timestamp() {
     auto now = std::chrono::system_clock::now();
@@ -108,17 +228,106 @@ struct InstanceMetaInfo {
   }
 };
 
-// the info be stored in etcd
-struct InstanceIdentityInfo {
-  std::string instance_addr;
-  std::string rpc_addr;
-  int8_t instance_type;  // convert to InstanceType
+struct CacheLocations {
+  std::unordered_set<std::string> hbm_instance_set;
+  std::unordered_set<std::string> dram_instance_set;
+  std::unordered_set<std::string> ssd_instance_set;
 
-  const std::string debug_string() const {
-    std::string debug_str =
-        "instance_addr: " + instance_addr + ", rpc_addr: " + rpc_addr +
-        ", instance_type: " + std::to_string((int)(instance_type));
-    return debug_str;
+  nlohmann::json serialize_to_json() const {
+    nlohmann::json json_val;
+    json_val["hbm_instance_set"] = hbm_instance_set;
+    json_val["dram_instance_set"] = dram_instance_set;
+    json_val["ssd_instance_set"] = ssd_instance_set;
+    return json_val;
+  }
+
+  std::string debug_string() { return serialize_to_json().dump(2); }
+
+  bool parse_from_json(const std::string& json_str) {
+    try {
+      nlohmann::json json_value = nlohmann::json::parse(json_str);
+      for (const auto& item :
+           json_value.at("hbm_instance_set").get<std::vector<std::string>>()) {
+        hbm_instance_set.insert(item);
+      }
+
+      for (const auto& item :
+           json_value.at("dram_instance_set").get<std::vector<std::string>>()) {
+        dram_instance_set.insert(item);
+      }
+
+      for (const auto& item :
+           json_value.at("ssd_instance_set").get<std::vector<std::string>>()) {
+        ssd_instance_set.insert(item);
+      }
+
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "json str:" << json_str
+                 << ", parse to cachelocation error: " << e.what();
+      return false;
+    }
+    return true;
+  }
+
+  bool empty() const {
+    return hbm_instance_set.empty() && dram_instance_set.empty() &&
+           ssd_instance_set.empty();
+  }
+};
+
+struct OverlapScores {
+  std::unordered_set<std::string> instances;
+  std::unordered_map<std::string, uint32_t> hbm_instance_score;
+  std::unordered_map<std::string, uint32_t> dram_instance_score;
+  std::unordered_map<std::string, uint32_t> ssd_instance_score;
+  uint32_t max_block_num = 0;
+  uint32_t max_matched_block_num = 0;
+  std::string max_matched_instance_name = "";
+
+  std::string debug_string() {
+    nlohmann::json json_val;
+    json_val["instances"] = instances;
+    json_val["hbm_instance_score"] = hbm_instance_score;
+    json_val["dram_instance_score"] = dram_instance_score;
+    json_val["ssd_instance_score"] = ssd_instance_score;
+    json_val["max_block_num"] = max_block_num;
+    json_val["max_matched_block_num"] = max_matched_block_num;
+    json_val["max_matched_instance_name"] = max_matched_instance_name;
+    return json_val.dump(2);
+  }
+};
+
+struct LoadBalanceInfos {
+  OverlapScores overlap_scores;
+  std::unordered_map<std::string, LoadMetrics> prefill_load_metrics;
+  std::unordered_map<std::string, LoadMetrics> decode_load_metrics;
+  uint64_t prefill_max_waiting_requests_num = 0;
+  uint64_t decode_max_waiting_requests_num = 0;
+
+  std::string debug_string() {
+    nlohmann::json json_val;
+
+    json_val["overlap_scores"] =
+        nlohmann::json::parse(overlap_scores.debug_string());
+
+    nlohmann::json prefill_json;
+    for (auto& [key, metrics] : prefill_load_metrics) {
+      prefill_json[key] = nlohmann::json::parse(metrics.debug_string());
+    }
+    json_val["prefill_load_metrics"] = prefill_json;
+
+    nlohmann::json decode_json;
+    for (auto& [key, metrics] : decode_load_metrics) {
+      decode_json[key] = nlohmann::json::parse(metrics.debug_string());
+    }
+    json_val["decode_load_metrics"] = decode_json;
+
+    json_val["prefill_max_waiting_requests_num"] =
+        prefill_max_waiting_requests_num;
+    json_val["decode_max_waiting_requests_num"] =
+        decode_max_waiting_requests_num;
+
+    return json_val.dump(2);
   }
 };
 
