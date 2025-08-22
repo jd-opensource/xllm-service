@@ -78,8 +78,7 @@ bool Scheduler::schedule(const std::string& prompt, SchduleResult* res) {
       return false;
     }
 
-    Slice<int32_t> token_ids(res->token_ids.data(),
-                             res->token_ids.size());
+    Slice<int32_t> token_ids(res->token_ids.data(), res->token_ids.size());
 
     global_kvcache_mgr_->match(token_ids, &lb_infos.overlap_scores);
     DLOG(INFO) << lb_infos.debug_string();
