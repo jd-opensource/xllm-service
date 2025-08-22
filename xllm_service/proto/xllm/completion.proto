@@ -5,7 +5,7 @@ option cc_enable_arenas = true;
 
 import "common.proto";
 
-// Next ID: 25
+// Next ID: 28
 message CompletionRequest {
   // ID of the model to use. (required)
   // You can use the ListModels endpoint to list available models.
@@ -87,7 +87,9 @@ message CompletionRequest {
 
   optional string service_request_id = 25;
 
-  Routing routing = 28;
+  repeated int32 token_ids = 26;
+  
+  Routing routing = 27;
 }
 
 message LogProbs {
