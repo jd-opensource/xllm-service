@@ -55,6 +55,8 @@ DEFINE_string(etcd_addr,
               "0.0.0.0:2379",
               "etcd adderss for save instance meta info");
 
+DEFINE_uint32(murmur_hash3_seed, 1024, "default Murmur Hash seed");
+
 DEFINE_int32(port, 8888, "Port for xllm service to listen on");
 
 DEFINE_int32(num_threads, 32, "Number of threads to process requests");
