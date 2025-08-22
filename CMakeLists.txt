@@ -98,6 +98,7 @@ endif()
 
 # find all dependencies from vcpkg
 find_package(Boost REQUIRED)
+find_package(Boost REQUIRED COMPONENTS serialization)
 find_package(glog CONFIG REQUIRED)
 find_package(gflags CONFIG REQUIRED)
 find_package(leveldb CONFIG REQUIRED)
