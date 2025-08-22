@@ -18,6 +18,7 @@ limitations under the License.
 #include <glog/logging.h>
 
 #include "common/global_gflags.h"
+#include "common/types.h"
 #include "common/utils.h"
 #include "rpc_service/service.h"
 
@@ -27,7 +28,10 @@ int main(int argc, char* argv[]) {
 
   // Initialize glog
   google::InitGoogleLogging(argv[0]);
-  FLAGS_logtostderr = true;
+
+  LOG(INFO) << "Dump all gflags: " << std::endl
+            << google::CommandlineFlagsIntoString();
+  google::FlushLogFiles(google::INFO);
 
   LOG(INFO) << "Starting xllm rpc service, port: " << FLAGS_port;
 
@@ -43,9 +47,19 @@ int main(int argc, char* argv[]) {
   config.detect_disconnected_instance_interval =
       FLAGS_detect_disconnected_instance_interval;
 
+  xllm_service::ModelConfig model_config;
+  model_config.block_size = FLAGS_block_size;
+  model_config.model_type = FLAGS_model_type;
+  model_config.tokenizer_path = FLAGS_tokenizer_path;
+
+  xllm_service::HttpServiceConfig http_config;
+  http_config.num_threads = FLAGS_num_threads;
+  http_config.timeout_ms = FLAGS_timeout_ms;
+  http_config.test_instance_addr = FLAGS_test_instance_addr;
+
   // create xllm service
-  auto xllm_service_impl =
-      std::make_shared<xllm_service::XllmRpcServiceImpl>(config);
+  auto xllm_service_impl = std::make_shared<xllm_service::XllmRpcServiceImpl>(
+      config, model_config, http_config);
   xllm_service::XllmRpcService service(xllm_service_impl);
 
   // Initialize brpc server

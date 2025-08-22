@@ -32,6 +32,9 @@ struct ServerOptions {
   int32_t http_num_threads = 32;
   int32_t http_max_concurrency = 128;
   bool enable_request_trace = false;
+  int num_threads = 16;
+  int timeout_ms = -1;
+  std::string test_instance_addr = "";
 
   // rpc server options
   std::string rpc_server_host = "";

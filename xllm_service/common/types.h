@@ -102,9 +102,9 @@ enum class InstanceType : int8_t {
 };
 
 struct LoadMetrics {
-  LoadMetrics() : waiting_requests_num(0), gpu_cache_usage_perc(0){};
+  LoadMetrics() : waiting_requests_num(0), gpu_cache_usage_perc(0) {};
   LoadMetrics(const uint64_t& waiting_reqs_num, const float& usage)
-      : waiting_requests_num(waiting_reqs_num), gpu_cache_usage_perc(usage){};
+      : waiting_requests_num(waiting_reqs_num), gpu_cache_usage_perc(usage) {};
 
   uint64_t waiting_requests_num;
   float gpu_cache_usage_perc;
