@@ -18,11 +18,6 @@ DEFINE_int32(http_server_max_concurrency,
              128,
              "Limit number of requests processed in parallel");
 
-DEFINE_string(rpc_server_host,
-              "",
-              "Rpc server listen address, may be IPV4/IPV6/UDS."
-              " If this is set, the flag port will be ignored");
-
 DEFINE_int32(rpc_server_port, 8889, "Port for xllm rpc service to listen on");
 
 DEFINE_int32(rpc_server_idle_timeout_s,
@@ -39,6 +34,8 @@ DEFINE_int32(rpc_server_max_concurrency,
 DEFINE_string(etcd_addr,
               "0.0.0.0:2379",
               "etcd adderss for save instance meta info");
+
+DEFINE_uint32(murmur_hash3_seed, 1024, "default Murmur Hash seed");
 
 DEFINE_int32(port, 8888, "Port for xllm service to listen on");
 

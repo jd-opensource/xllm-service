@@ -1,0 +1,237 @@
+#include "global_kvcache_mgr.h"
+
+#include <nlohmann/json.hpp>
+
+#include "common/hash_util.h"
+
+namespace xllm_service {
+
+inline size_t round_down(size_t n, size_t multiple) {
+  return (n / multiple) * multiple;
+}
+
+static std::string ETCD_CACHE_PREFIX = "XLLM:CACHE:";
+
+GlobalKVCacheMgr::GlobalKVCacheMgr(
+    const std::shared_ptr<EtcdClient>& etcd_client,
+    const ModelConfig& model_config,
+    const bool is_master_service)
+    : model_config_(model_config),
+      is_master_service_(is_master_service),
+      etcd_client_(etcd_client) {
+  if (!is_master_service_) {
+    auto handle_kvcache = std::bind(&GlobalKVCacheMgr::handle_kvcache_watch,
+                                    this,
+                                    std::placeholders::_1,
+                                    std::placeholders::_2);
+    etcd_client_->add_watch(ETCD_CACHE_PREFIX, handle_kvcache);
+  }
+
+  {
+    std::unique_lock<std::shared_mutex> lock(kvcache_mutex_);
+    etcd_client_->get_prefix(ETCD_CACHE_PREFIX, &kvcache_infos_);
+    DLOG(INFO) << "Load etcd cache infos:" << kvcache_infos_.size();
+  }
+}
+
+GlobalKVCacheMgr::~GlobalKVCacheMgr() {
+  exited_ = true;
+  etcd_client_->remove_watch(ETCD_CACHE_PREFIX);
+}
+
+void set_score(const std::unordered_set<std::string>& instance_names,
+               const uint32_t& match_length,
+               std::unordered_map<std::string, uint32_t>* scores,
+               std::unordered_set<std::string>* instances) {
+  for (const auto& name : instance_names) {
+    if (scores->count(name) == 0) {
+      scores->insert_or_assign(name, match_length);
+    } else {
+      (*scores)[name] = match_length;
+    }
+    instances->insert(name);
+  }
+}
+
+void GlobalKVCacheMgr::match(const Slice<int32_t>& token_ids,
+                             OverlapScores* overlap_scores) {
+  // allign tokens to block boundary
+  const size_t n_tokens =
+      round_down(token_ids.size(), model_config_.block_size);
+  if (n_tokens == 0) {
+    return;
+  }
+
+  overlap_scores->max_block_num = n_tokens / model_config_.block_size;
+
+  std::shared_lock lock(kvcache_mutex_);
+  Murmur3Key token_hash_key;
+  for (size_t i = 0; i < n_tokens; i += model_config_.block_size) {
+    if (i == 0) {
+      murmur_hash3(nullptr,
+                   token_ids.slice(i, i + model_config_.block_size),
+                   token_hash_key.data);
+    } else {
+      murmur_hash3(token_hash_key.data,
+                   token_ids.slice(i, i + model_config_.block_size),
+                   token_hash_key.data);
+    }
+
+    auto iter = kvcache_infos_.find(token_hash_key);
+    if (iter != kvcache_infos_.end() && !iter->second.empty()) {
+      if (!iter->second.hbm_instance_set.empty()) {
+        set_score(iter->second.hbm_instance_set,
+                  i / model_config_.block_size + 1,
+                  &(overlap_scores->hbm_instance_score),
+                  &(overlap_scores->instances));
+        overlap_scores->max_matched_instance_name =
+            *iter->second.hbm_instance_set.begin();
+        overlap_scores->max_matched_block_num =
+            i / model_config_.block_size + 1;
+      }
+
+      if (!iter->second.dram_instance_set.empty()) {
+        set_score(iter->second.dram_instance_set,
+                  i / model_config_.block_size + 1,
+                  &(overlap_scores->dram_instance_score),
+                  &(overlap_scores->instances));
+        overlap_scores->max_matched_instance_name =
+            *iter->second.hbm_instance_set.begin();
+        overlap_scores->max_matched_block_num =
+            i / model_config_.block_size + 1;
+      }
+
+      if (!iter->second.ssd_instance_set.empty()) {
+        set_score(iter->second.ssd_instance_set,
+                  i / model_config_.block_size + 1,
+                  &(overlap_scores->ssd_instance_score),
+                  &(overlap_scores->instances));
+        overlap_scores->max_matched_instance_name =
+            *iter->second.hbm_instance_set.begin();
+        overlap_scores->max_matched_block_num =
+            i / model_config_.block_size + 1;
+      }
+    } else {
+      break;
+    }
+  }
+}
+
+void GlobalKVCacheMgr::handle_kvcache_watch(const etcd::Response& response,
+                                            const uint64_t prefix_len) {
+  if (response.events().empty() || exited_) {
+    return;
+  }
+
+  Murmur3KeyCacheMap put_map;
+  std::vector<Murmur3Key> delete_list;
+
+  for (const auto& event : response.events()) {
+    auto key = event.kv().key().substr(prefix_len);
+
+    if (event.event_type() == etcd::Event::EventType::PUT) {
+      CacheLocations cachelocations;
+      auto json_str = event.kv().as_string();
+      if (!cachelocations.parse_from_json(json_str)) {
+        LOG(ERROR) << "pase json:" << json_str << " error!";
+        continue;
+      }
+
+      put_map.insert_or_assign(Murmur3Key{key.c_str()},
+                               std::move(cachelocations));
+
+    } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
+      delete_list.emplace_back(Murmur3Key{key.c_str()});
+    }
+  }
+
+  {
+    std::unique_lock<std::shared_mutex> lock(kvcache_mutex_);
+    for (auto& iter : put_map) {
+      kvcache_infos_.insert_or_assign(iter.first, std::move(iter.second));
+    }
+
+    for (auto& iter : delete_list) {
+      kvcache_infos_.erase(iter);
+    }
+  }
+}
+
+void GlobalKVCacheMgr::record_updated_kvcaches(
+    const std::string& instance_name,
+    const proto::KvCacheEvent& kvcache_event) {
+  std::lock_guard<std::mutex> update_lock(update_mutex_);
+  std::shared_lock<std::shared_mutex> metric_lock(kvcache_mutex_);
+  for (int i = 0; i < kvcache_event.stored_cache_size(); i++) {
+    Murmur3Key key(kvcache_event.stored_cache(i).c_str());
+    if (updated_kvcaches_.count(key) == 0) {
+      if (kvcache_infos_.count(key) == 0) {
+        updated_kvcaches_.insert_or_assign(key, CacheLocations());
+      } else {
+        updated_kvcaches_.insert_or_assign(key, kvcache_infos_[key]);
+      }
+    }
+    updated_kvcaches_.at(key).hbm_instance_set.insert(instance_name);
+  }
+
+  for (int i = 0; i < kvcache_event.offload_cache_size(); i++) {
+    Murmur3Key key(kvcache_event.offload_cache(i).c_str());
+    if (updated_kvcaches_.count(key) == 0) {
+      if (kvcache_infos_.count(key) == 0) {
+        continue;
+      } else {
+        updated_kvcaches_.insert_or_assign(key, kvcache_infos_[key]);
+      }
+    }
+    if (updated_kvcaches_.at(key).hbm_instance_set.count(instance_name) != 0) {
+      updated_kvcaches_.at(key).hbm_instance_set.erase(instance_name);
+      updated_kvcaches_.at(key).dram_instance_set.insert(instance_name);
+    } else {
+      updated_kvcaches_.at(key).dram_instance_set.erase(instance_name);
+      updated_kvcaches_.at(key).ssd_instance_set.insert(instance_name);
+    }
+  }
+
+  for (int i = 0; i < kvcache_event.removed_cache_size(); i++) {
+    Murmur3Key key(kvcache_event.removed_cache(i).c_str());
+    if (updated_kvcaches_.count(key) == 0) {
+      if (kvcache_infos_.count(key) == 0) {
+        continue;
+      } else {
+        updated_kvcaches_.insert_or_assign(key, kvcache_infos_[key]);
+      }
+    }
+    updated_kvcaches_.at(key).hbm_instance_set.erase(instance_name);
+    updated_kvcaches_.at(key).dram_instance_set.erase(instance_name);
+    updated_kvcaches_.at(key).ssd_instance_set.erase(instance_name);
+  }
+}
+
+bool GlobalKVCacheMgr::upload_kvcache() {
+  std::lock_guard<std::mutex> update_lock(update_mutex_);
+  if (updated_kvcaches_.empty()) {
+    return true;
+  }
+  bool rt = etcd_client_->set(ETCD_CACHE_PREFIX, updated_kvcaches_);
+  {
+    std::unique_lock<std::shared_mutex> metric_lock(kvcache_mutex_);
+    for (auto& iter : updated_kvcaches_) {
+      if (iter.second.empty()) {
+        kvcache_infos_.erase(iter.first);
+      } else {
+        kvcache_infos_.insert_or_assign(iter.first, std::move(iter.second));
+      }
+    }
+  }
+  if (rt) {
+    updated_kvcaches_.clear();
+  }
+  return rt;
+}
+
+void GlobalKVCacheMgr::set_as_master() {
+  is_master_service_ = true;
+  etcd_client_->remove_watch(ETCD_CACHE_PREFIX);
+}
+
+}  // namespace xllm_service

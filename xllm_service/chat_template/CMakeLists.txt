@@ -9,10 +9,12 @@ cc_library (
     coded_chat_template.h
     common_chat_template.h
     jinja_chat_template.h
+    chat_template_factory.h
   SRCS
     coded_chat_template.cpp
     common_chat_template.cpp
     jinja_chat_template.cpp
+    chat_template_factory.cpp
   DEPS
     :minja
     :tokenizer

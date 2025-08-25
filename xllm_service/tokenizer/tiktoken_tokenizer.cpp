@@ -1,4 +1,4 @@
-#include "tokenizer/tiktoken_tokenizer.h"
+#include "tiktoken_tokenizer.h"
 
 #include <absl/strings/escaping.h>
 #include <absl/strings/numbers.h>

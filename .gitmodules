@@ -16,3 +16,6 @@
 [submodule "third_party/minja"]
 	path = third_party/minja
 	url = https://gitcode.com/xLLM-AI/minja.git
+[submodule "third_party/smhasher"]
+	path = third_party/smhasher
+	url = https://gitcode.com/xLLM-AI/smhasher.git

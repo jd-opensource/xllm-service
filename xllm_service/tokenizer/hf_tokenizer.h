@@ -2,7 +2,6 @@
 
 #include "tokenizer.h"
 #include "tokenizers/tokenizers.h"
-
 namespace xllm_service {
 
 // a tokenizer that uses hf/tokenizers
