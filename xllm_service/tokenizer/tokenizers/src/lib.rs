@@ -100,7 +100,7 @@ extern "C" fn tokenizer_get_decode_str(
 ) {
     unsafe {
         *out_cstr = (*handle).decode_str.as_mut_ptr();
-        *out_len = (*handle).decode_str.len();
+        *out_len = (&(*handle).decode_str).len();
     }
 }
 
@@ -142,7 +142,7 @@ extern "C" fn tokenizer_id_to_token(
         };
 
         *out_cstr = (*handle).id_to_token_result.as_mut_ptr();
-        *out_len = (*handle).id_to_token_result.len();
+        *out_len = (&(*handle).id_to_token_result).len();
     }
 }
 

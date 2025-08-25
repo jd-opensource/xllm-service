@@ -1,6 +1,8 @@
 include(cc_library)
 
 add_subdirectory(cpprestsdk)
+set(CPPREST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cpprestsdk/Release/include)
+set(CPPREST_LIB ${CMAKE_BINARY_DIR}/third_party/cpprestsdk/Release/Binaries/libcpprest.a)
 add_subdirectory(etcd_cpp_apiv3)
 add_subdirectory(brpc)
 add_subdirectory(minja)
