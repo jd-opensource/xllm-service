@@ -127,12 +127,17 @@ list(APPEND COMMON_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/xllm_service/include
 list(APPEND COMMON_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 list(APPEND COMMON_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/etcd_cpp_apiv3)
 
+set(VCPKG_ARCH x64)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    set(VCPKG_ARCH arm64)
+endif()
+
 # cpprestsdk
 if (DEFINED ENV{VCPKG_ROOT} AND USE_ASCEND)
-    include_directories("$ENV{VCPKG_ROOT}/packages/boost-locale_x64-linux/include")
-    link_directories("$ENV{VCPKG_ROOT}/packages/boost-locale_x64-linux/lib")
-    include_directories("$ENV{VCPKG_ROOT}/packages/boost-interprocess_x64-linux/include")
-    link_directories("$ENV{VCPKG_ROOT}/packages/boost-interprocess_x64-linux/lib")
+    include_directories("$ENV{VCPKG_ROOT}/packages/boost-locale_${VCPKG_ARCH}-linux/include")
+    link_directories("$ENV{VCPKG_ROOT}/packages/boost-locale_${VCPKG_ARCH}-linux/lib")
+    include_directories("$ENV{VCPKG_ROOT}/packages/boost-interprocess_${VCPKG_ARCH}-linux/include")
+    link_directories("$ENV{VCPKG_ROOT}/packages/boost-interprocess_${VCPKG_ARCH}-linux/lib")
 endif()
 set(CPPREST_EXCLUDE_WEBSOCKETS ON CACHE BOOL "Exclude websockets functionality." FORCE)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format-truncation")
@@ -146,8 +151,8 @@ link_directories(${ETCD_CLIENT_OUTPUT_DIR}/src)
 
 # brpc
 if (DEFINED ENV{VCPKG_ROOT} AND USE_ASCEND)
-    include_directories("$ENV{VCPKG_ROOT}/packages/zlib_x64-linux/include")
-    link_directories("$ENV{VCPKG_ROOT}/packages/zlib_x64-linux/lib")
+    include_directories("$ENV{VCPKG_ROOT}/packages/zlib_${VCPKG_ARCH}-linux/include")
+    link_directories("$ENV{VCPKG_ROOT}/packages/zlib_${VCPKG_ARCH}-linux/lib")
 endif()
 set(BRPC_OUTPUT_DIR ${CMAKE_BINARY_DIR}/third_party/brpc/output)
 include_directories(${BRPC_OUTPUT_DIR}/include)
