@@ -20,7 +20,7 @@ GlobalKVCacheMgr::GlobalKVCacheMgr(
       is_master_service_(is_master_service),
       etcd_client_(etcd_client) {
   if (!is_master_service_) {
-    auto handle_kvcache = std::bind(&GlobalKVCacheMgr::handle_kvcache_watch,
+    auto handle_kvcache = std::bind(&GlobalKVCacheMgr::update_kvcache,
                                     this,
                                     std::placeholders::_1,
                                     std::placeholders::_2);
@@ -117,44 +117,48 @@ void GlobalKVCacheMgr::match(const Slice<int32_t>& token_ids,
   }
 }
 
-void GlobalKVCacheMgr::handle_kvcache_watch(const etcd::Response& response,
-                                            const uint64_t prefix_len) {
+void GlobalKVCacheMgr::update_kvcache(const etcd::Response& response,
+                                      const uint64_t prefix_len) {
   if (response.events().empty() || exited_) {
     return;
   }
+  threadpool_.schedule([this,
+                        response = std::move(response),
+                        prefix_len = std::move(prefix_len)] {
+    if (exited_) return;
+    Murmur3KeyCacheMap put_map;
+    std::vector<Murmur3Key> delete_list;
 
-  Murmur3KeyCacheMap put_map;
-  std::vector<Murmur3Key> delete_list;
+    for (const auto& event : response.events()) {
+      auto key = event.kv().key().substr(prefix_len);
 
-  for (const auto& event : response.events()) {
-    auto key = event.kv().key().substr(prefix_len);
+      if (event.event_type() == etcd::Event::EventType::PUT) {
+        CacheLocations cachelocations;
+        auto json_str = event.kv().as_string();
+        if (!cachelocations.parse_from_json(json_str)) {
+          LOG(ERROR) << "pase json:" << json_str << " error!";
+          continue;
+        }
 
-    if (event.event_type() == etcd::Event::EventType::PUT) {
-      CacheLocations cachelocations;
-      auto json_str = event.kv().as_string();
-      if (!cachelocations.parse_from_json(json_str)) {
-        LOG(ERROR) << "pase json:" << json_str << " error!";
-        continue;
+        put_map.insert_or_assign(Murmur3Key{key.c_str()},
+                                 std::move(cachelocations));
+
+      } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
+        delete_list.emplace_back(Murmur3Key{key.c_str()});
+      }
+    }
+
+    {
+      std::unique_lock<std::shared_mutex> lock(kvcache_mutex_);
+      for (auto& iter : put_map) {
+        kvcache_infos_.insert_or_assign(iter.first, std::move(iter.second));
       }
 
-      put_map.insert_or_assign(Murmur3Key{key.c_str()},
-                               std::move(cachelocations));
-
-    } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
-      delete_list.emplace_back(Murmur3Key{key.c_str()});
+      for (auto& iter : delete_list) {
+        kvcache_infos_.erase(iter);
+      }
     }
-  }
-
-  {
-    std::unique_lock<std::shared_mutex> lock(kvcache_mutex_);
-    for (auto& iter : put_map) {
-      kvcache_infos_.insert_or_assign(iter.first, std::move(iter.second));
-    }
-
-    for (auto& iter : delete_list) {
-      kvcache_infos_.erase(iter);
-    }
-  }
+  });
 }
 
 void GlobalKVCacheMgr::record_updated_kvcaches(

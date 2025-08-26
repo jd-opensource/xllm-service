@@ -20,6 +20,7 @@ limitations under the License.
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <boost/asio.hpp>
 #include <mutex>
 
 namespace xllm_service {
@@ -71,6 +72,26 @@ bool get_bool_env(const std::string& key, bool defaultValue) {
   std::string strVal(val);
   return (strVal == "1" || strVal == "true" || strVal == "TRUE" ||
           strVal == "True");
+}
+
+std::string get_local_ip() {
+  using namespace boost::asio;
+  io_service io;
+  ip::tcp::resolver resolver(io);
+  ip::tcp::resolver::query query(ip::host_name(), "");
+  ip::tcp::resolver::iterator iter = resolver.resolve(query);
+  ip::tcp::resolver::iterator end;
+
+  while (iter != end) {
+    ip::address addr = iter->endpoint().address();
+    if (!addr.is_loopback() && addr.is_v4()) {
+      return addr.to_string();
+    }
+    ++iter;
+  }
+
+  LOG(FATAL) << "Get local ip faill!";
+  return "";
 }
 
 }  // namespace utils

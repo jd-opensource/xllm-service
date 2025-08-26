@@ -45,7 +45,7 @@ InstanceMgr::InstanceMgr(const std::shared_ptr<EtcdClient>& etcd_client,
       is_master_service_(is_master_service),
       etcd_client_(etcd_client) {
   auto handle_instance_metainfo =
-      std::bind(&InstanceMgr::handle_instance_metainfo_watch,
+      std::bind(&InstanceMgr::update_instance_metainfo,
                 this,
                 std::placeholders::_1,
                 std::placeholders::_2);
@@ -53,11 +53,10 @@ InstanceMgr::InstanceMgr(const std::shared_ptr<EtcdClient>& etcd_client,
     etcd_client_->add_watch(it.second, handle_instance_metainfo);
   }
   if (!is_master_service_) {
-    auto handle_load_metrics =
-        std::bind(&InstanceMgr::handle_load_metrics_watch,
-                  this,
-                  std::placeholders::_1,
-                  std::placeholders::_2);
+    auto handle_load_metrics = std::bind(&InstanceMgr::update_load_metrics,
+                                         this,
+                                         std::placeholders::_1,
+                                         std::placeholders::_2);
     etcd_client_->add_watch(ETCD_LOADMETRICS_PREFIX, handle_load_metrics);
   }
 
@@ -73,7 +72,7 @@ void InstanceMgr::init() {
     LOG(INFO) << "Load instance info from etcd:" << instances_.size();
     for (const auto& name : instances_) {
       if (!create_channel(name.first)) {
-        zombie_nodes_.insert(name.first);
+        // TODO: add retry
         instances_.erase(name.first);
       }
     }
@@ -140,9 +139,9 @@ void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
   }
 
   std::string least_loaded_prefill_instance;
-  int32_t least_loaded_prefill_waiting_reqs = INT32_MAX;
+  float least_loaded_prefill_gpu_cache_usage_perc = 1;
   std::string least_loaded_decode_instance;
-  int32_t least_loaded_decode_waiting_reqs = INT32_MAX;
+  float least_loaded_decode_gpu_cache_usage_perc = 1;
 
   if (infos->prefill_load_metrics.size() == 0 ||
       infos->decode_load_metrics.size() == 0) {
@@ -150,17 +149,17 @@ void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
       auto instance_it = instances_.find(metric.first);
       if (instance_it != instances_.end()) {
         if (instance_it->second.type != InstanceType::DECODE) {
-          if (metric.second.waiting_requests_num <
-              least_loaded_prefill_waiting_reqs) {
-            least_loaded_prefill_waiting_reqs =
-                metric.second.waiting_requests_num;
+          if (metric.second.gpu_cache_usage_perc <
+              least_loaded_prefill_gpu_cache_usage_perc) {
+            least_loaded_prefill_gpu_cache_usage_perc =
+                metric.second.gpu_cache_usage_perc;
             least_loaded_prefill_instance = metric.first;
           }
         } else {
-          if (metric.second.waiting_requests_num <
-              least_loaded_decode_waiting_reqs) {
-            least_loaded_decode_waiting_reqs =
-                metric.second.waiting_requests_num;
+          if (metric.second.gpu_cache_usage_perc <
+              least_loaded_decode_gpu_cache_usage_perc) {
+            least_loaded_decode_gpu_cache_usage_perc =
+                metric.second.gpu_cache_usage_perc;
             least_loaded_decode_instance = metric.first;
           }
         }
@@ -173,7 +172,6 @@ void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
     infos->prefill_load_metrics.insert(
         std::make_pair(least_loaded_prefill_instance,
                        load_metrics_[least_loaded_prefill_instance]));
-    infos->prefill_max_waiting_requests_num = least_loaded_prefill_waiting_reqs;
   }
 
   if (infos->decode_load_metrics.size() == 0 &&
@@ -181,7 +179,6 @@ void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
     infos->decode_load_metrics.insert(
         std::make_pair(least_loaded_decode_instance,
                        load_metrics_[least_loaded_decode_instance]));
-    infos->decode_max_waiting_requests_num = least_loaded_decode_waiting_reqs;
   }
 }
 
@@ -251,99 +248,108 @@ bool InstanceMgr::create_channel(const std::string& instance_name) {
   return true;
 }
 
-void InstanceMgr::handle_instance_metainfo_watch(const etcd::Response& response,
-                                                 const uint64_t& prefix_len) {
-  if (response.events().empty()) {
+void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
+                                           const uint64_t& prefix_len) {
+  if (response.events().empty() || exited_) {
     return;
   }
 
-  std::unordered_map<std::string, InstanceMetaInfo> put_map;
-  std::vector<std::string> delete_list;
+  threadpool_.schedule([this,
+                        response = std::move(response),
+                        prefix_len = std::move(prefix_len)] {
+    if (exited_) return;
+    std::unordered_map<std::string, InstanceMetaInfo> put_map;
+    std::vector<std::string> delete_list;
 
-  for (const auto& event : response.events()) {
-    std::string instance_name = event.kv().key().substr(prefix_len);
+    for (const auto& event : response.events()) {
+      std::string instance_name = event.kv().key().substr(prefix_len);
 
-    if (event.event_type() == etcd::Event::EventType::PUT) {
-      InstanceMetaInfo metainfo;
-      auto json_str = event.kv().as_string();
-      if (!metainfo.parse_from_json(json_str)) {
-        LOG(ERROR) << "pase json:" << json_str << " error!";
-        continue;
-      }
+      if (event.event_type() == etcd::Event::EventType::PUT) {
+        InstanceMetaInfo metainfo;
+        auto json_str = event.kv().as_string();
+        if (!metainfo.parse_from_json(json_str)) {
+          LOG(ERROR) << "pase json:" << json_str << " error!";
+          continue;
+        }
 
-      put_map.insert(std::make_pair(instance_name, std::move(metainfo)));
+        put_map.insert(std::make_pair(instance_name, std::move(metainfo)));
 
-    } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
-      delete_list.push_back(instance_name);
-    }
-  }
-
-  {
-    std::unique_lock<std::shared_mutex> lock(inst_mutex_);
-    for (auto& iter : put_map) {
-      if (instances_.find(iter.first) != instances_.end()) {
-        LOG(ERROR) << "Instance is already registered, instance_name: "
-                   << iter.first;
-        continue;
-      }
-      instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
-      create_channel(iter.first);
-    }
-
-    for (auto& iter : delete_list) {
-      if (instances_.find(iter) == instances_.end()) {
-        LOG(ERROR) << "Instance is already deleted, instance_name: " << iter;
-        continue;
-      }
-      // TODO: notify cache manager to clear expire cache
-      instances_.erase(iter);
-      cached_channels_.erase(iter);
-      {
-        std::lock_guard<std::mutex> lock(update_mutex_);
-        updated_metrics_.erase(iter);
-        removed_instance_.insert(iter);
+      } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
+        delete_list.push_back(instance_name);
       }
     }
-  }
+
+    {
+      std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+      for (auto& iter : put_map) {
+        if (instances_.find(iter.first) != instances_.end()) {
+          LOG(ERROR) << "Instance is already registered, instance_name: "
+                     << iter.first;
+          continue;
+        }
+        instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
+        create_channel(iter.first);
+      }
+
+      for (auto& iter : delete_list) {
+        if (instances_.find(iter) == instances_.end()) {
+          LOG(ERROR) << "Instance is already deleted, instance_name: " << iter;
+          continue;
+        }
+        // TODO: notify cache manager to clear expire cache
+        instances_.erase(iter);
+        cached_channels_.erase(iter);
+        {
+          std::lock_guard<std::mutex> lock(update_mutex_);
+          updated_metrics_.erase(iter);
+          removed_instance_.insert(iter);
+        }
+      }
+    }
+  });
 }
 
-void InstanceMgr::handle_load_metrics_watch(const etcd::Response& response,
-                                            const uint64_t prefix_len) {
-  if (response.events().empty()) {
+void InstanceMgr::update_load_metrics(const etcd::Response& response,
+                                      const uint64_t& prefix_len) {
+  if (response.events().empty() || exited_) {
     return;
   }
+  threadpool_.schedule([this,
+                        response = std::move(response),
+                        prefix_len = std::move(prefix_len)] {
+    if (exited_) return;
+    std::unordered_map<std::string, LoadMetrics> put_map;
+    std::vector<std::string> delete_list;
 
-  std::unordered_map<std::string, LoadMetrics> put_map;
-  std::vector<std::string> delete_list;
+    for (const auto& event : response.events()) {
+      std::string instance_name = event.kv().key().substr(prefix_len);
 
-  for (const auto& event : response.events()) {
-    std::string instance_name = event.kv().key().substr(prefix_len);
+      if (event.event_type() == etcd::Event::EventType::PUT) {
+        LoadMetrics load_metrics;
+        auto json_str = event.kv().as_string();
+        if (!load_metrics.parse_from_json(json_str)) {
+          LOG(ERROR) << "pase json:" << json_str << " error!";
+          continue;
+        }
 
-    if (event.event_type() == etcd::Event::EventType::PUT) {
-      LoadMetrics load_metrics;
-      auto json_str = event.kv().as_string();
-      if (!load_metrics.parse_from_json(json_str)) {
-        LOG(ERROR) << "pase json:" << json_str << " error!";
-        continue;
+        put_map.insert(std::make_pair(instance_name, std::move(load_metrics)));
+
+      } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
+        delete_list.push_back(instance_name);
+      }
+    }
+
+    {
+      std::unique_lock<std::shared_mutex> lock(load_metric_mutex_);
+      for (auto& iter : put_map) {
+        load_metrics_.insert_or_assign(iter.first, std::move(iter.second));
       }
 
-      put_map.insert(std::make_pair(instance_name, std::move(load_metrics)));
-
-    } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
-      delete_list.push_back(instance_name);
+      for (auto& iter : delete_list) {
+        load_metrics_.erase(iter);
+      }
     }
-  }
-
-  {
-    std::unique_lock<std::shared_mutex> lock(load_metric_mutex_);
-    for (auto& iter : put_map) {
-      load_metrics_.insert_or_assign(iter.first, std::move(iter.second));
-    }
-
-    for (auto& iter : delete_list) {
-      load_metrics_.erase(iter);
-    }
-  }
+  });
 }
 
 }  // namespace xllm_service

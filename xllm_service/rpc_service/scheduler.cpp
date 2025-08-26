@@ -54,7 +54,7 @@ Scheduler::Scheduler(const RpcServiceConfig& rpc_config,
 
 Scheduler::~Scheduler() { etcd_client_->stop_watch(); }
 
-bool Scheduler::schedule(const ChatMessages& messages, SchduleResult* res) {
+bool Scheduler::schedule(const ChatMessages& messages, ScheduleResult* res) {
   if (chat_template_ == nullptr) {
     LOG(ERROR) << "Chat template has not configured for model type: "
                << model_config_.model_type;
@@ -70,7 +70,7 @@ bool Scheduler::schedule(const ChatMessages& messages, SchduleResult* res) {
   return schedule(prompt.value(), res);
 }
 
-bool Scheduler::schedule(const std::string& prompt, SchduleResult* res) {
+bool Scheduler::schedule(const std::string& prompt, ScheduleResult* res) {
   LoadBalanceInfos lb_infos;
   if (prompt.size() != 0) {
     if (!get_tls_tokenizer()->encode(prompt, &res->token_ids)) {
