@@ -23,6 +23,7 @@ limitations under the License.
 #include <unordered_set>
 
 #include "common/macros.h"
+#include "common/threadpool.h"
 #include "common/types.h"
 #include "etcd_client.h"
 #include "xllm_rpc_service.pb.h"
@@ -59,11 +60,11 @@ class InstanceMgr final {
 
   bool create_channel(const std::string& target_uri);
   // use etcd as ServiceDiscovery
-  void handle_instance_metainfo_watch(const etcd::Response& response,
-                                      const uint64_t& prefix_len);
+  void update_instance_metainfo(const etcd::Response& response,
+                                const uint64_t& prefix_len);
 
-  void handle_load_metrics_watch(const etcd::Response& response,
-                                 const uint64_t prefix_len);
+  void update_load_metrics(const etcd::Response& response,
+                           const uint64_t& prefix_len);
 
  private:
   bool exited_ = false;
@@ -82,11 +83,12 @@ class InstanceMgr final {
   std::unordered_map<std::string, LoadMetrics> load_metrics_;
   std::unordered_map<std::string, std::shared_ptr<brpc::Channel>>
       cached_channels_;
-  std::unordered_set<std::string> zombie_nodes_;
 
   std::mutex update_mutex_;
   std::unordered_map<std::string, LoadMetrics> updated_metrics_;
   std::unordered_set<std::string> removed_instance_;
+
+  ThreadPool threadpool_;
 };
 
 }  // namespace xllm_service

@@ -80,12 +80,12 @@ std::vector<std::string> XllmRpcServiceImpl::get_static_decode_list(
 }
 
 bool XllmRpcServiceImpl::schedule(const std::string& prompt,
-                                  SchduleResult* res) {
+                                  ScheduleResult* res) {
   return scheduler_->schedule(prompt, res);
 }
 
 bool XllmRpcServiceImpl::schedule(const ChatMessages& messages,
-                                  SchduleResult* res) {
+                                  ScheduleResult* res) {
   return scheduler_->schedule(messages, res);
 }
 

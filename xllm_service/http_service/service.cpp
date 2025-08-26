@@ -336,7 +336,7 @@ void XllmHttpServiceImpl::post_serving(
     trace_callback = nullptr;
   }
 
-  SchduleResult schedule_res;
+  ScheduleResult schedule_res;
   if (serving_method == "/v1/completions") {
     if (json_value.contains("prompt")) {
       if (!rpc_service_->schedule(json_value.at("prompt").get<std::string>(),
@@ -350,8 +350,8 @@ void XllmHttpServiceImpl::post_serving(
       LOG(ERROR) << "Input has no prompt!";
       return;
     }
-    json_value["token_ids"] = schedule_res.token_ids;
-    json_value["routing"] = schedule_res.routing.serialize_to_json();
+    json_value["token_ids"] = std::move(schedule_res.token_ids);
+    json_value["routing"] = std::move(schedule_res.routing.serialize_to_json());
 
     std::string req_attachment = json_value.dump();
     auto arena = response->GetArena();
@@ -396,8 +396,8 @@ void XllmHttpServiceImpl::post_serving(
       LOG(ERROR) << "Input has no messages!";
       return;
     }
-    json_value["token_ids"] = schedule_res.token_ids;
-    json_value["routing"] = schedule_res.routing.serialize_to_json();
+    json_value["token_ids"] = std::move(schedule_res.token_ids);
+    json_value["routing"] = std::move(schedule_res.routing.serialize_to_json());
 
     std::string req_attachment = json_value.dump();
     auto arena = response->GetArena();
@@ -454,7 +454,7 @@ void XllmHttpServiceImpl::get_serving(
   auto call_data = std::make_shared<CompletionCallData>(
       cntl, false, done_guard.release(), nullptr);
 
-  SchduleResult schedule_res;
+  ScheduleResult schedule_res;
   if (!rpc_service_->schedule("", &schedule_res)) {
     cntl->SetFailed("Schedule fail!");
     LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";

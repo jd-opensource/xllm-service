@@ -75,9 +75,9 @@ class XllmRpcServiceImpl final {
                           bool include_usage);
   void finish_request(const std::string& service_request_id);
 
-  bool schedule(const std::string& prompt, SchduleResult* res);
+  bool schedule(const std::string& prompt, ScheduleResult* res);
 
-  bool schedule(const ChatMessages& messages, SchduleResult* res);
+  bool schedule(const ChatMessages& messages, ScheduleResult* res);
 
   std::shared_ptr<brpc::Channel> get_channel(const std::string& target_name);
 

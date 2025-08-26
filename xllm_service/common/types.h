@@ -70,7 +70,7 @@ struct Routing {
   std::string debug_string() const { return serialize_to_json().dump(2); }
 };
 
-struct SchduleResult {
+struct ScheduleResult {
   std::vector<int32_t> token_ids;
   Routing routing;
 };
@@ -275,10 +275,26 @@ struct CacheLocations {
   }
 };
 
+/**
+ * @brief Records the prefix cache match lengths for different instances on
+ * current request
+ *
+ * This struct stores and manages prefix cache matching information across
+ * multiple instances, supporting different storage types (HBM, DRAM, SSD) for
+ * match length recording, and tracks information about the best matching
+ * instance.
+ */
 struct OverlapScores {
+  // Set of matched instance names
   std::unordered_set<std::string> instances;
+  // HBM storage type instance match length mapping (instance name -> match
+  // length)
   std::unordered_map<std::string, uint32_t> hbm_instance_score;
+  // DRAM storage type instance match length mapping (instance name -> match
+  // length)
   std::unordered_map<std::string, uint32_t> dram_instance_score;
+  // SSD storage type instance match length mapping (instance name -> match
+  // length)
   std::unordered_map<std::string, uint32_t> ssd_instance_score;
   uint32_t max_block_num = 0;
   uint32_t max_matched_block_num = 0;

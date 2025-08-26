@@ -15,7 +15,6 @@ limitations under the License.
 
 #include "master.h"
 
-#include <boost/asio.hpp>
 #include <csignal>
 
 #include "common/global_gflags.h"
@@ -173,26 +172,6 @@ void shutdown_handler(int signal) {
   exit(1);
 }
 
-std::string get_local_ip() {
-  using namespace boost::asio;
-  io_service io;
-  ip::tcp::resolver resolver(io);
-  ip::tcp::resolver::query query(ip::host_name(), "");
-  ip::tcp::resolver::iterator iter = resolver.resolve(query);
-  ip::tcp::resolver::iterator end;
-
-  while (iter != end) {
-    ip::address addr = iter->endpoint().address();
-    if (!addr.is_loopback() && addr.is_v4()) {
-      return addr.to_string();
-    }
-    ++iter;
-  }
-
-  LOG(FATAL) << "Get local ip faill!";
-  return "";
-}
-
 int main(int argc, char* argv[]) {
   // Initialize gflags
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -228,7 +207,7 @@ int main(int argc, char* argv[]) {
   server_options.http_idle_timeout_s = FLAGS_http_server_idle_timeout_s;
   server_options.http_num_threads = FLAGS_http_server_num_threads;
   server_options.http_max_concurrency = FLAGS_http_server_max_concurrency;
-  server_options.rpc_server_host = get_local_ip();
+  server_options.rpc_server_host = xllm_service::utils::get_local_ip();
   server_options.rpc_port = FLAGS_rpc_server_port;
   server_options.rpc_idle_timeout_s = FLAGS_rpc_server_idle_timeout_s;
   server_options.rpc_num_threads = FLAGS_rpc_server_num_threads;

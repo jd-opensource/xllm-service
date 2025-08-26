@@ -6,6 +6,7 @@
 #include "common/hash_util.h"
 #include "common/macros.h"
 #include "common/slice.h"
+#include "common/threadpool.h"
 #include "common/types.h"
 #include "etcd_client.h"
 #include "xllm_rpc_service.pb.h"
@@ -30,8 +31,8 @@ class GlobalKVCacheMgr final {
  private:
   DISALLOW_COPY_AND_ASSIGN(GlobalKVCacheMgr);
 
-  void handle_kvcache_watch(const etcd::Response& response,
-                            const uint64_t prefix_len);
+  void update_kvcache(const etcd::Response& response,
+                      const uint64_t prefix_len);
 
  private:
   ModelConfig model_config_;
@@ -43,6 +44,8 @@ class GlobalKVCacheMgr final {
 
   std::mutex update_mutex_;
   Murmur3KeyCacheMap updated_kvcaches_;
+
+  ThreadPool threadpool_;
 };
 
 }  // namespace xllm_service
