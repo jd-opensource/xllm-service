@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "chat_template/chat_template.h"
+#include "chat_template/jinja_chat_template.h"
 #include "common/hash_util.h"
 #include "common/macros.h"
 #include "common/types.h"
@@ -68,7 +68,7 @@ class Scheduler {
   HttpServiceConfig http_config_;
 
   // chat template instance
-  std::unique_ptr<ChatTemplate> chat_template_;
+  std::unique_ptr<JinjaChatTemplate> chat_template_;
 
   std::shared_ptr<EtcdClient> etcd_client_;
 

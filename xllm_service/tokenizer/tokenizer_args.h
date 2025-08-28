@@ -93,7 +93,7 @@ inline std::ostream& operator<<(std::ostream& os, const TokenizerArgs& args) {
   return os;
 }
 
-bool load_tokenizer_args(const std::string& model_weights_path,
+void load_tokenizer_args(const std::string& model_weights_path,
                          TokenizerArgs& tokenizer_args);
 
 }  // namespace xllm_service
