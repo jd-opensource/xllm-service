@@ -11,7 +11,7 @@ class TokenizerFactory {
  public:
   static std::unique_ptr<Tokenizer> create_tokenizer(
       const std::string& model_weights_path,
-      TokenizerArgs tokenizer_args);
+      TokenizerArgs* tokenizer_args);
 };
 
 }  // namespace xllm_service

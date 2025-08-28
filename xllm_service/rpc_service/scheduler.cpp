@@ -4,7 +4,7 @@
 #include <array>
 #include <nlohmann/json.hpp>
 
-#include "chat_template/chat_template_factory.h"
+#include "chat_template/jinja_chat_template.h"
 #include "common.pb.h"
 #include "common/hash_util.h"
 #include "tokenizer/tokenizer_factory.h"
@@ -20,9 +20,9 @@ Scheduler::Scheduler(const RpcServiceConfig& rpc_config,
     : rpc_config_(rpc_config),
       model_config_(model_config),
       http_config_(http_config) {
-  tokenizer_ = create_tokenizer(model_config_, &tokenizer_args_);
-  chat_template_ =
-      create_chat_template(model_config_.model_type, tokenizer_args_);
+  tokenizer_ = TokenizerFactory::create_tokenizer(model_config_.tokenizer_path,
+                                                  &tokenizer_args_);
+  chat_template_ = std::make_unique<JinjaChatTemplate>(tokenizer_args_);
 
   etcd_client_ = std::make_shared<EtcdClient>(rpc_config_.etcd_addr);
 

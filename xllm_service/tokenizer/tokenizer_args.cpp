@@ -27,7 +27,7 @@ std::optional<std::string> load_chat_template_file(const std::string& dir) {
 }
 }  // namespace
 
-bool load_tokenizer_args(const std::string& model_weights_path,
+void load_tokenizer_args(const std::string& model_weights_path,
                          TokenizerArgs& tokenizer_args) {
   // tokenizer args from tokenizer_config.json
   JsonReader tokenizer_reader;
@@ -68,8 +68,6 @@ bool load_tokenizer_args(const std::string& model_weights_path,
       tokenizer_args.pad_token() = v.value();
     }
   }
-
-  return true;
 }
 
 }  // namespace xllm_service
