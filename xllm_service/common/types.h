@@ -1,3 +1,18 @@
+/* Copyright 2025 The xLLM Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://github.com/jd-opensource/xllm-service/blob/main/LICENSE
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #pragma once
 
 #include <glog/logging.h>
@@ -6,6 +21,8 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "nlohmann/json.hpp"
 
 namespace xllm_service {
 
@@ -103,6 +120,28 @@ struct InstanceIdentityInfo {
         ", instance_type: " + std::to_string((int)(instance_type));
     return debug_str;
   }
+};
+
+// Function call related types
+struct JsonFunction {
+  std::string name;
+  std::string description;
+  nlohmann::json parameters;
+
+  JsonFunction() = default;
+  JsonFunction(const std::string& func_name,
+               const std::string& desc,
+               const nlohmann::json& params)
+      : name(func_name), description(desc), parameters(params) {}
+};
+
+struct JsonTool {
+  std::string type;  // "function"
+  JsonFunction function;
+
+  JsonTool() : type("function") {}
+  JsonTool(const std::string& tool_type, const JsonFunction& func)
+      : type(tool_type), function(func) {}
 };
 
 }  // namespace xllm_service
