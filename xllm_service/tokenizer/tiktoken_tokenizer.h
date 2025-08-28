@@ -15,6 +15,7 @@ limitations under the License.
 ==============================================================================*/
 
 #pragma once
+
 #include <absl/container/flat_hash_map.h>
 #include <re2/re2.h>
 

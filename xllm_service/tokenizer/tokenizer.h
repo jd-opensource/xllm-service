@@ -15,30 +15,16 @@ limitations under the License.
 ==============================================================================*/
 
 #pragma once
-
-#include <common/slice.h>
-
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "common/slice.h"
+
 namespace xllm_service {
 
-// Fundamentally, Large Language Models (LLM) are designed to generate text
-// based on given prompts. To process text effectively, LLM models typically
-// work with sequences of integers as inputs and produce sequences of integers
-// as outputs. The conversion between text and integer sequences is handled by a
-// tokenizer during preprocessing. The tokenizer serves two primary functions:
-// 1. Breaking down text into tokens and then mapping those tokens to
-// corresponding integers using a predefined vocabulary.
-// 2. Reversing this process by converting a sequence of integers back into
-// human-readable text using the same vocabulary.
-//
-// For example:
-//  ids = tokenizer.Encode("Hello, world!") # [1, 2, 3]
-//  text = tokenizer.Decode(ids) # "Hello, world!"
 class Tokenizer {
  public:
   virtual ~Tokenizer() = default;

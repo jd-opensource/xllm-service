@@ -8,4 +8,4 @@ name = "rust_tokenizers"
 crate-type = ["cdylib"]
 
 [dependencies]
-tokenizers = { version = "0.20.0", default-features = false, features = ["onig"] }
+tokenizers = { version = "0.21.0", default-features = false, features = ["onig"] }

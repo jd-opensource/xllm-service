@@ -15,25 +15,37 @@ limitations under the License.
 ==============================================================================*/
 
 #pragma once
-#include "common/json_reader.h"
-#include "tokenizer_args.h"
+
+#include "tokenizer.h"
+#include "tokenizers/tokenizers.h"
 
 namespace xllm_service {
 
-class TokenizerArgsLoader {
+class FastTokenizer : public Tokenizer {
  public:
-  static void load(const std::string& model_type,
-                   const std::string& tokenizer_args_file_path,
-                   TokenizerArgs* tokenizer_args);
+  FastTokenizer(const std::string& tokenizer_json_path);
+
+  ~FastTokenizer() override;
+
+  bool encode(const std::string_view& text,
+              std::vector<int32_t>* ids) const override;
+
+  std::string decode(const Slice<int32_t>& ids,
+                     bool skip_special_tokens) const override;
+
+  std::optional<int32_t> token_to_id(
+      const std::string_view& token) const override;
+
+  std::string id_to_token(int32_t id) const override;
+
+  size_t vocab_size() const override;
+
+  std::unique_ptr<Tokenizer> clone() const override;
 
  private:
-  static void load_chatglm_args(TokenizerArgs* args);
+  std::string tokenizer_json_path_;
 
-  static void load_chatglm4_args(TokenizerArgs* args);
-
-  static void load_Yi_args(TokenizerArgs* args);
-
-  static void load_qwen_args(TokenizerArgs* args);
+  TokenizerHandle handle_ = nullptr;
 };
 
 }  // namespace xllm_service
