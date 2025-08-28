@@ -17,30 +17,26 @@ limitations under the License.
 #pragma once
 
 namespace xllm_service {
-// a central place to define common macros for the project
-// clang-format off
-#define DEFINE_ARG(T, name)                                       \
- public:                                                          \
-  inline auto name(const T& name) ->decltype(*this) {             \
-    this->name##_ = name;                                         \
-    return *this;                                                 \
-  }                                                               \
-  inline const T& name() const noexcept { return this->name##_; } \
-  inline T& name() noexcept { return this->name##_; }             \
-                                                                  \
-  T name##_
-
-#define DEFINE_PTR_ARG(T, name)                             \
- public:                                                    \
-  inline auto name(T* name) ->decltype(*this) {             \
-    this->name##_ = name;                                   \
-    return *this;                                           \
-  }                                                         \
-  inline T* name() const noexcept { return this->name##_; } \
-                                                            \
-  T* name##_
-
-// clang-format on
+#define PROPERTY(T, property)                                                 \
+ public:                                                                      \
+  [[nodiscard]] const T& property() const& noexcept { return property##_; }   \
+  [[nodiscard]] T& property() & noexcept { return property##_; }              \
+  [[nodiscard]] T&& property() && noexcept { return std::move(property##_); } \
+                                                                              \
+  auto property(const T& value) & -> decltype(*this) {                        \
+    property##_ = value;                                                      \
+    return *this;                                                             \
+  }                                                                           \
+                                                                              \
+  auto property(T&& value) & -> decltype(*this) {                             \
+    property##_ = std::move(value);                                           \
+    return *this;                                                             \
+  }                                                                           \
+                                                                              \
+  void property(const T& value) && = delete;                                  \
+  void property(T&& value) && = delete;                                       \
+                                                                              \
+  T property##_
 
 #ifndef UNUSED_PARAMETER
 #define UNUSED_PARAMETER(x) ((void)(x))
