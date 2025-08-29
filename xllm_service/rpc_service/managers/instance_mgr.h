@@ -22,10 +22,10 @@ limitations under the License.
 #include <unordered_map>
 #include <unordered_set>
 
+#include "../etcd_client/etcd_client.h"
 #include "common/macros.h"
 #include "common/threadpool.h"
 #include "common/types.h"
-#include "etcd_client.h"
 #include "xllm_rpc_service.pb.h"
 
 namespace xllm_service {
@@ -39,6 +39,8 @@ class InstanceMgr final {
   ~InstanceMgr();
 
   InstanceMetaInfo get_instance_info(const std::string& instance_name);
+
+  bool get_next_instance_pair(Routing* routing);
 
   std::vector<std::string> get_static_decode_list(
       const std::string& instance_name);
@@ -78,6 +80,10 @@ class InstanceMgr final {
 
   std::shared_mutex inst_mutex_;
   std::unordered_map<std::string, InstanceMetaInfo> instances_;
+  std::vector<std::string> prefill_index_;
+  std::vector<std::string> decode_index_;
+  uint64_t next_prefill_index_ = 0;
+  uint64_t next_decode_index_ = 0;
 
   std::shared_mutex load_metric_mutex_;
   std::unordered_map<std::string, LoadMetrics> load_metrics_;

@@ -24,7 +24,7 @@ limitations under the License.
 #include "common/xllm/output.h"
 #include "common/xllm/status.h"
 #include "completion.pb.h"
-#include "instance_mgr.h"
+#include "managers/instance_mgr.h"
 #include "response_handler.h"
 #include "scheduler.h"
 #include "xllm_rpc_service.pb.h"

@@ -45,7 +45,7 @@ struct HttpServiceConfig {
 
 struct RpcServiceConfig {
   std::string etcd_addr = "";
-  std::string disagg_pd_policy = "";
+  std::string load_balance_policy = "";
   int detect_disconnected_instance_interval = 15;  // seconds
   std::string service_name = "";
 };
@@ -162,6 +162,8 @@ struct InstanceMetaInfo {
 
   // latest heatbeat timestamp
   uint64_t latest_timestamp = 0;
+
+  uint64_t instance_index = -1;
 
   nlohmann::json serialize_to_json() const {
     nlohmann::json json_val;

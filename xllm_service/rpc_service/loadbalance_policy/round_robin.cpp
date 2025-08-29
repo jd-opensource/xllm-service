@@ -15,26 +15,12 @@ limitations under the License.
 
 #pragma once
 
-#include "../managers/global_kvcache_mgr.h"
-#include "../managers/instance_mgr.h"
-#include "common/types.h"
+#include "round_robin.h"
 
 namespace xllm_service {
 
-class LoadBalancePolicy {
- public:
-  LoadBalancePolicy(std::shared_ptr<InstanceMgr> instance_mgr,
-                    std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr)
-      : instance_mgr_(instance_mgr), global_kvcache_mgr_(global_kvcache_mgr) {}
-
-  virtual ~LoadBalancePolicy() = default;
-
-  virtual bool select_instances_pair(ScheduleResult* res) = 0;
-
- protected:
-  std::shared_ptr<InstanceMgr> instance_mgr_;
-
-  std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr_;
-};
+bool RoundRobin::select_instances_pair(ScheduleResult* res) {
+  return instance_mgr_->get_next_instance_pair(&res->routing);
+}
 
 }  // namespace xllm_service

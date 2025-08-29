@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
 
   xllm_service::RpcServiceConfig config;
   config.etcd_addr = FLAGS_etcd_addr;
-  config.disagg_pd_policy = FLAGS_disagg_pd_policy;
+  config.load_balance_policy = FLAGS_load_balance_policy;
   config.detect_disconnected_instance_interval =
       FLAGS_detect_disconnected_instance_interval;
 

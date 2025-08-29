@@ -78,7 +78,9 @@ DEFINE_int32(idle_timeout_s,
              "Connection will be closed if there is no "
              "read/write operations during the last `idle_timeout_s'");
 
-DEFINE_string(disagg_pd_policy, "RR", "Disaggregated prefill-decode policy.");
+DEFINE_string(load_balance_policy,
+              "RR",
+              "Disaggregated prefill-decode policy.");
 
 DEFINE_int32(detect_disconnected_instance_interval,
              15,

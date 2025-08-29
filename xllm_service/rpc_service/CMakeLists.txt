@@ -1,6 +1,8 @@
 include(cc_binary)
 include(cc_library)
 include(cc_test)
+add_subdirectory(etcd_client)
+add_subdirectory(managers)
 add_subdirectory(loadbalance_policy)
 
 cc_library(
@@ -8,25 +10,19 @@ cc_library(
   xllm_rpc_service
   HDRS
     scheduler.h
-    etcd_client.h
-    instance_mgr.h
-    global_kvcache_mgr.h
     response_handler.h
     service.h
   SRCS
     scheduler.cpp
-    etcd_client.cpp
-    instance_mgr.cpp
-    global_kvcache_mgr.cpp
     response_handler.cpp
     service.cpp
   DEPS
     :common
+    :etcd_client
+    :managers
     :loadbalance_policy
     absl::random_random
     absl::strings
-    cpprest
-    etcd-cpp-api
     glog::glog
     nlohmann_json::nlohmann_json
     proto::proto_rpc_service
