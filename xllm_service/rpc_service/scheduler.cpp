@@ -7,6 +7,8 @@
 #include "chat_template/jinja_chat_template.h"
 #include "common.pb.h"
 #include "common/hash_util.h"
+#include "loadbalance_policy/cache_aware_routing.h"
+#include "loadbalance_policy/round_robin.h"
 #include "tokenizer/tokenizer_factory.h"
 
 static constexpr int kHeartbeatInterval = 3;  // in seconds
@@ -32,13 +34,19 @@ Scheduler::Scheduler(const RpcServiceConfig& rpc_config,
     LOG(INFO) << "Set current service as master!";
   }
 
-  instance_mgr_ = std::make_unique<InstanceMgr>(
+  instance_mgr_ = std::make_shared<InstanceMgr>(
       etcd_client_, http_config_, is_master_service_);
 
-  global_kvcache_mgr_ = std::make_unique<GlobalKVCacheMgr>(
+  global_kvcache_mgr_ = std::make_shared<GlobalKVCacheMgr>(
       etcd_client_, model_config_, is_master_service_);
 
-  lb_policy_ = std::make_unique<LoadBalancePolicy>();
+  if (rpc_config_.load_balance_policy == "CAR") {
+    lb_policy_ =
+        std::make_unique<CacheAwareRouting>(instance_mgr_, global_kvcache_mgr_);
+  } else {
+    lb_policy_ =
+        std::make_unique<RoundRobin>(instance_mgr_, global_kvcache_mgr_);
+  }
 
   if (is_master_service_) {
     heartbeat_thread_ = std::make_unique<std::thread>(
@@ -71,32 +79,16 @@ bool Scheduler::schedule(const ChatMessages& messages, ScheduleResult* res) {
 }
 
 bool Scheduler::schedule(const std::string& prompt, ScheduleResult* res) {
-  LoadBalanceInfos lb_infos;
   if (prompt.size() != 0) {
     if (!get_tls_tokenizer()->encode(prompt, &res->token_ids)) {
       LOG(ERROR) << "Encode prompt faill: " << prompt;
       return false;
     }
-
-    Slice<int32_t> token_ids(res->token_ids.data(), res->token_ids.size());
-
-    global_kvcache_mgr_->match(token_ids, &lb_infos.overlap_scores);
-    DLOG(INFO) << lb_infos.debug_string();
   }
-
-  instance_mgr_->get_load_metrics(&lb_infos);
-  DLOG(INFO) << lb_infos.debug_string();
-
-  if (lb_infos.prefill_load_metrics.size() == 0) {
-    LOG(INFO) << "No node available!";
-    return false;
-  }
-
-  lb_policy_->select_instances_pair(lb_infos, &res->routing);
-
+  auto ret = lb_policy_->select_instances_pair(res);
   DLOG(INFO) << res->routing.debug_string();
 
-  return true;
+  return ret;
 }
 
 std::shared_ptr<brpc::Channel> Scheduler::get_channel(

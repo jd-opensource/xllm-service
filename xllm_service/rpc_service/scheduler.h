@@ -11,10 +11,10 @@
 #include "common/hash_util.h"
 #include "common/macros.h"
 #include "common/types.h"
-#include "etcd_client.h"
-#include "global_kvcache_mgr.h"
-#include "instance_mgr.h"
+#include "etcd_client/etcd_client.h"
 #include "loadbalance_policy/loadbalance_policy.h"
+#include "managers/global_kvcache_mgr.h"
+#include "managers/instance_mgr.h"
 #include "tokenizer/tokenizer.h"
 #include "tokenizer/tokenizer_args.h"
 #include "xllm_rpc_service.pb.h"
@@ -74,9 +74,9 @@ class Scheduler {
 
   std::unique_ptr<Tokenizer> tokenizer_;
 
-  std::unique_ptr<InstanceMgr> instance_mgr_;
+  std::shared_ptr<InstanceMgr> instance_mgr_;
 
-  std::unique_ptr<GlobalKVCacheMgr> global_kvcache_mgr_;
+  std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr_;
 
   std::unique_ptr<LoadBalancePolicy> lb_policy_;
 

@@ -43,7 +43,7 @@ struct ServerOptions {
   int32_t rpc_num_threads = 32;
   int32_t rpc_max_concurrency = 128;
   std::string etcd_addr = "";
-  std::string disagg_pd_policy = "RR";
+  std::string load_balance_policy = "RR";
   int32_t detect_disconnected_instance_interval = 15;
   int32_t block_size = 16;
   std::string model_type = "chatglm";

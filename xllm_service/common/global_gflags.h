@@ -53,7 +53,7 @@ DECLARE_int32(max_concurrency);
 
 DECLARE_string(etcd_addr);
 
-DECLARE_string(disagg_pd_policy);
+DECLARE_string(load_balance_policy);
 
 DECLARE_int32(detect_disconnected_instance_interval);
 

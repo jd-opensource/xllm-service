@@ -35,7 +35,6 @@ static std::unordered_map<InstanceType, std::string> ETCD_KEYS_PREFIX_MAP = {
     {InstanceType::DECODE, "XLLM:DECODE:"},
 };
 static std::string ETCD_ALL_KEYS_PREFIX = "XLLM:";
-static std::string DEFAULT_DISAGG_PD_POLICY = "RR";
 static std::string ETCD_LOADMETRICS_PREFIX = "XLLM:LOADMETRICS:";
 
 InstanceMgr::InstanceMgr(const std::shared_ptr<EtcdClient>& etcd_client,
@@ -70,16 +69,42 @@ void InstanceMgr::init() {
       etcd_client_->get_prefix(it.second, &instances_);
     }
     LOG(INFO) << "Load instance info from etcd:" << instances_.size();
-    for (const auto& name : instances_) {
-      if (!create_channel(name.first)) {
-        // TODO: add retry
-        instances_.erase(name.first);
+    std::vector<std::string> channel_creat_fail_insts;
+    prefill_index_.reserve(instances_.size());
+    decode_index_.reserve(instances_.size());
+
+    for (auto& ist : instances_) {
+      if (!create_channel(ist.first)) {
+        channel_creat_fail_insts.emplace_back(ist.first);
+      } else {
+        switch (ist.second.type) {
+          case InstanceType::DEFAULT:
+          case InstanceType::PREFILL:
+            ist.second.instance_index = prefill_index_.size();
+            prefill_index_.emplace_back(ist.first);
+            break;
+          case InstanceType::DECODE:
+            ist.second.instance_index = decode_index_.size();
+            decode_index_.emplace_back(ist.first);
+            break;
+          default:
+            LOG(WARNING) << "Unknown InstanceType: " << int(ist.second.type);
+            channel_creat_fail_insts.emplace_back(ist.first);
+            break;
+        }
       }
+    }
+    for (auto& name : channel_creat_fail_insts) {
+      instances_.erase(name);
     }
   }
   {
     std::unique_lock<std::shared_mutex> lock(load_metric_mutex_);
     etcd_client_->get_prefix(ETCD_LOADMETRICS_PREFIX, &load_metrics_);
+  }
+
+  for (int i = 0; i < prefill_index_.size(); i++) {
+    LOG(INFO) << i << " : " << prefill_index_[i];
   }
 }
 
@@ -95,6 +120,24 @@ InstanceMetaInfo InstanceMgr::get_instance_info(
     return InstanceMetaInfo();
   }
   return instances_[instance_name];
+}
+
+bool InstanceMgr::get_next_instance_pair(Routing* routing) {
+  std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+  if (prefill_index_.empty()) {
+    LOG(ERROR) << "No prefill or default instance found!";
+    return false;
+  }
+  next_prefill_index_ = next_prefill_index_ % prefill_index_.size();
+  routing->prefill_name = prefill_index_[next_prefill_index_];
+  next_prefill_index_++;
+  if (decode_index_.empty()) {
+    return true;
+  }
+  next_decode_index_ = next_decode_index_ % decode_index_.size();
+  routing->decode_name = decode_index_[next_decode_index_];
+  next_decode_index_++;
+  return true;
 }
 
 // TODO: refactor later, currently return all decode instances
@@ -287,8 +330,28 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
                      << iter.first;
           continue;
         }
+
+        if (!create_channel(iter.first)) {
+          LOG(ERROR) << "create channel fail: " << iter.first;
+          continue;
+        }
+
         instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
-        create_channel(iter.first);
+
+        switch (iter.second.type) {
+          case InstanceType::DEFAULT:
+          case InstanceType::PREFILL:
+            iter.second.instance_index = prefill_index_.size();
+            prefill_index_.emplace_back(iter.first);
+            break;
+          case InstanceType::DECODE:
+            iter.second.instance_index = decode_index_.size();
+            decode_index_.emplace_back(iter.first);
+            break;
+          default:
+            LOG(WARNING) << "Unknown InstanceType: " << int(iter.second.type);
+            break;
+        }
       }
 
       for (auto& iter : delete_list) {
@@ -297,6 +360,32 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
           continue;
         }
         // TODO: notify cache manager to clear expire cache
+        uint64_t index = instances_[iter].instance_index;
+
+        switch (instances_[iter].type) {
+          case InstanceType::DEFAULT:
+          case InstanceType::PREFILL:
+            if (index == -1 || index >= prefill_index_.size()) {
+              break;
+            }
+            std::swap(prefill_index_[index], prefill_index_.back());
+            instances_[prefill_index_[index]].instance_index = index;
+            prefill_index_.pop_back();
+            break;
+          case InstanceType::DECODE:
+            if (index == -1 || index >= decode_index_.size()) {
+              break;
+            }
+            std::swap(decode_index_[index], decode_index_.back());
+            instances_[decode_index_[index]].instance_index = index;
+            decode_index_.pop_back();
+            break;
+          default:
+            LOG(WARNING) << "Unknown InstanceType: "
+                         << int(instances_[iter].type);
+            break;
+        }
+
         instances_.erase(iter);
         cached_channels_.erase(iter);
         {

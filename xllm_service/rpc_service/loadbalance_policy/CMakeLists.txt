@@ -7,8 +7,12 @@ cc_library(
   loadbalance_policy
   HDRS
     loadbalance_policy.h
+    round_robin.h
+    cache_aware_routing.h
   SRCS
-    loadbalance_policy.cpp
+    round_robin.cpp
+    cache_aware_routing.cpp
   DEPS
     :common
+    :managers
 )

@@ -31,7 +31,7 @@ Master::Master(const ServerOptions& server_options)
   }
   RpcServiceConfig rpc_config;
   rpc_config.etcd_addr = server_options.etcd_addr;
-  rpc_config.disagg_pd_policy = server_options.disagg_pd_policy;
+  rpc_config.load_balance_policy = server_options.load_balance_policy;
   rpc_config.detect_disconnected_instance_interval =
       server_options.detect_disconnected_instance_interval;
 
@@ -213,7 +213,7 @@ int main(int argc, char* argv[]) {
   server_options.rpc_num_threads = FLAGS_rpc_server_num_threads;
   server_options.rpc_max_concurrency = FLAGS_rpc_server_max_concurrency;
   server_options.etcd_addr = FLAGS_etcd_addr;
-  server_options.disagg_pd_policy = FLAGS_disagg_pd_policy;
+  server_options.load_balance_policy = FLAGS_load_balance_policy;
   server_options.detect_disconnected_instance_interval =
       FLAGS_detect_disconnected_instance_interval;
   server_options.enable_request_trace = FLAGS_enable_request_trace;
