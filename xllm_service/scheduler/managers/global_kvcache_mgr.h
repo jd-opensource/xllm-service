@@ -21,6 +21,7 @@ limitations under the License.
 #include "../etcd_client/etcd_client.h"
 #include "common/hash_util.h"
 #include "common/macros.h"
+#include "common/options.h"
 #include "common/slice.h"
 #include "common/threadpool.h"
 #include "common/types.h"
@@ -30,8 +31,8 @@ namespace xllm_service {
 
 class GlobalKVCacheMgr final {
  public:
-  explicit GlobalKVCacheMgr(const std::shared_ptr<EtcdClient>& etcd_client,
-                            const ModelConfig& model_config,
+  explicit GlobalKVCacheMgr(const Options& options,
+                            const std::shared_ptr<EtcdClient>& etcd_client,
                             const bool is_master_service);
   ~GlobalKVCacheMgr();
 
@@ -50,7 +51,7 @@ class GlobalKVCacheMgr final {
                       const uint64_t prefix_len);
 
  private:
-  ModelConfig model_config_;
+  Options options_;
   std::atomic_bool is_master_service_ = false;
   bool exited_ = false;
   std::shared_mutex kvcache_mutex_;

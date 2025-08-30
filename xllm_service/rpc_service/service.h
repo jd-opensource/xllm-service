@@ -19,19 +19,14 @@ limitations under the License.
 #include <unordered_map>
 
 #include "chat.pb.h"
-#include "common/call_data.h"
-#include "common/threadpool.h"
+#include "common/options.h"
+#include "common/types.h"
 #include "common/xllm/output.h"
 #include "common/xllm/status.h"
 #include "completion.pb.h"
-#include "managers/instance_mgr.h"
-#include "response_handler.h"
-#include "scheduler.h"
 #include "xllm_rpc_service.pb.h"
 
 namespace xllm_service {
-
-using OutputCallback = std::function<bool(llm::RequestOutput output)>;
 
 struct ServiceConfig {
   ServiceConfig(bool decode_to_service)
@@ -40,11 +35,12 @@ struct ServiceConfig {
   bool enable_decode_response_to_service = false;
 };
 
+class Scheduler;
+class InstanceMgr;
+
 class XllmRpcServiceImpl final {
  public:
-  XllmRpcServiceImpl(const RpcServiceConfig& rpc_config,
-                     const ModelConfig& model_config,
-                     const HttpServiceConfig& http_config);
+  XllmRpcServiceImpl(const Options& options, Scheduler* scheduler);
   ~XllmRpcServiceImpl();
 
   void heartbeat(const proto::HeartbeatRequest* req);
@@ -60,40 +56,11 @@ class XllmRpcServiceImpl final {
   // handle generations from prefill/decode instance
   bool handle_generation(const llm::RequestOutput& request_output);
 
-  // register new requests from http service
-  // keep http callback util request finished.
-  // `handle_generation` will handle response with these callbacks.
-  bool record_new_request(std::shared_ptr<ChatCallData> call_data,
-                          const std::string& service_request_id,
-                          bool stream,
-                          const std::string& model,
-                          bool include_usage);
-  bool record_new_request(std::shared_ptr<CompletionCallData> call_data,
-                          const std::string& service_request_id,
-                          bool stream,
-                          const std::string& model,
-                          bool include_usage);
-  void finish_request(const std::string& service_request_id);
-
-  bool schedule(const std::string& prompt, ScheduleResult* res);
-
-  bool schedule(const ChatMessages& messages, ScheduleResult* res);
-
-  std::shared_ptr<brpc::Channel> get_channel(const std::string& target_name);
-
  private:
-  // `request` -> `callback` map
-  std::unordered_map<std::string, OutputCallback> callbacks_;
-  std::mutex callback_mutex_;
+  Options options_;
 
-  // use threadpool to handle all RequestOuputs queue
-  static constexpr size_t kOutputTheadNum_ = 128;  // magic num
-  ThreadPool output_threadpools_[kOutputTheadNum_];
-  // A request will be handled in the same thread to guarantee the token's
-  // order.
-  std::unordered_map<std::string, size_t> remote_requests_output_thread_map_;
-  size_t next_thread_idx = 0;
-  std::mutex thread_map_mutex_;
+  // not own
+  Scheduler* scheduler_;
 
   // In disagg pd mode, we support receive generated token from
   // prefill or from decode directly.
@@ -108,18 +75,12 @@ class XllmRpcServiceImpl final {
   // [service] <---resp-- [decode]
   //
   bool enable_decode_response_to_service_ = false;
-
-  // used when receive token from decode instance.
-  ResponseHandler response_handler_;
-
-  // instance discovery by register to etcd
-  std::unique_ptr<Scheduler> scheduler_;
 };
 
 // parse proto data and call XllmRpcService
 class XllmRpcService : public proto::XllmRpcService {
  public:
-  explicit XllmRpcService(std::shared_ptr<XllmRpcServiceImpl> service);
+  explicit XllmRpcService(const Options& options, Scheduler* scheduler);
   virtual ~XllmRpcService();
 
   virtual void Hello(google::protobuf::RpcController* cntl_base,
@@ -155,7 +116,7 @@ class XllmRpcService : public proto::XllmRpcService {
                          google::protobuf::Closure* done) override;
 
  private:
-  std::shared_ptr<XllmRpcServiceImpl> xllm_service_;
+  std::unique_ptr<XllmRpcServiceImpl> xllm_rpc_service_impl_;
 };
 
 }  // namespace xllm_service

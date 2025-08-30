@@ -23,40 +23,14 @@ limitations under the License.
 
 namespace xllm_service {
 
-Master::Master(const ServerOptions& server_options)
-    : server_options_(server_options) {
-  if (server_options.etcd_addr.empty()) {
-    LOG(WARNING)
-        << "etcd_addr is empty, rpc service will not save metadata to etcd.";
-  }
-  RpcServiceConfig rpc_config;
-  rpc_config.etcd_addr = server_options.etcd_addr;
-  rpc_config.load_balance_policy = server_options.load_balance_policy;
-  rpc_config.detect_disconnected_instance_interval =
-      server_options.detect_disconnected_instance_interval;
-
-  rpc_config.service_name = server_options_.rpc_server_host + ":" +
-                            std::to_string(server_options_.rpc_port);
-
-  ModelConfig model_config;
-  model_config.block_size = server_options.block_size;
-  model_config.model_type = server_options.model_type;
-  model_config.tokenizer_path = server_options.tokenizer_path;
-
-  xllm_service::HttpServiceConfig http_config;
-  http_config.num_threads = server_options.http_num_threads;
-  http_config.timeout_ms = server_options.timeout_ms;
-  http_config.test_instance_addr = server_options.test_instance_addr;
-  http_config.enable_request_trace = server_options.enable_request_trace;
-
-  rpc_service_impl_ = std::make_shared<xllm_service::XllmRpcServiceImpl>(
-      rpc_config, model_config, http_config);
+Master::Master(const Options& options) : options_(options) {
+  scheduler_ = std::make_unique<Scheduler>(options);
 
   rpc_service_ =
-      std::make_unique<xllm_service::XllmRpcService>(rpc_service_impl_);
+      std::make_unique<xllm_service::XllmRpcService>(options, scheduler_.get());
 
   http_service_ = std::make_unique<xllm_service::XllmHttpServiceImpl>(
-      rpc_service_impl_, http_config);
+      options, scheduler_.get());
 }
 
 Master::~Master() { stop(); }
@@ -98,21 +72,21 @@ bool Master::start_http_server() {
   }
 
   brpc::ServerOptions options;
-  options.idle_timeout_sec = server_options_.http_idle_timeout_s;
-  options.num_threads = server_options_.http_num_threads;
-  options.max_concurrency = server_options_.http_max_concurrency;
+  options.idle_timeout_sec = options_.http_idle_timeout_s();
+  options.num_threads = options_.http_num_threads();
+  options.max_concurrency = options_.http_max_concurrency();
 
   butil::EndPoint endpoint;
-  if (!server_options_.http_server_host.empty()) {
-    http_server_address_ = server_options_.http_server_host + ":" +
-                           std::to_string(server_options_.http_port);
+  if (!options_.server_host().empty()) {
+    http_server_address_ =
+        options_.server_host() + ":" + std::to_string(options_.http_port());
     if (butil::str2endpoint(http_server_address_.c_str(), &endpoint) < 0) {
       LOG(FATAL) << "Convert server_addr to endpoint failed: "
                  << http_server_address_;
       return false;
     }
   } else {
-    endpoint = butil::EndPoint(butil::IP_ANY, server_options_.http_port);
+    endpoint = butil::EndPoint(butil::IP_ANY, options_.http_port());
   }
 
   if (http_server_.Start(endpoint, &options) != 0) {
@@ -135,21 +109,21 @@ bool Master::start_rpc_server() {
   }
 
   brpc::ServerOptions options;
-  options.idle_timeout_sec = server_options_.rpc_idle_timeout_s;
-  options.num_threads = server_options_.rpc_num_threads;
-  options.max_concurrency = server_options_.rpc_max_concurrency;
+  options.idle_timeout_sec = options_.rpc_idle_timeout_s();
+  options.num_threads = options_.rpc_num_threads();
+  options.max_concurrency = options_.rpc_max_concurrency();
 
   butil::EndPoint endpoint;
-  if (!server_options_.rpc_server_host.empty()) {
-    rpc_server_address_ = server_options_.rpc_server_host + ":" +
-                          std::to_string(server_options_.rpc_port);
+  if (!options_.server_host().empty()) {
+    rpc_server_address_ =
+        options_.server_host() + ":" + std::to_string(options_.rpc_port());
     if (butil::str2endpoint(rpc_server_address_.c_str(), &endpoint) < 0) {
       LOG(FATAL) << "Convert server_addr to endpoint failed: "
                  << rpc_server_address_;
       return false;
     }
   } else {
-    endpoint = butil::EndPoint(butil::IP_ANY, server_options_.rpc_port);
+    endpoint = butil::EndPoint(butil::IP_ANY, options_.rpc_port());
   }
 
   if (rpc_server_.Start(endpoint, &options) != 0) {
@@ -178,11 +152,7 @@ int main(int argc, char* argv[]) {
 
   // Initialize glog
   google::InitGoogleLogging(argv[0]);
-  // FLAGS_logtostderr = true;
-
-  LOG(INFO) << "Dump all gflags: " << std::endl
-            << google::CommandlineFlagsIntoString();
-  google::FlushLogFiles(google::INFO);
+  FLAGS_logtostderr = true;
 
   LOG(INFO) << "Starting xllm master service.";
 
@@ -201,33 +171,31 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
-  xllm_service::ServerOptions server_options;
-  server_options.http_server_host = FLAGS_http_server_host;
-  server_options.http_port = FLAGS_http_server_port;
-  server_options.http_idle_timeout_s = FLAGS_http_server_idle_timeout_s;
-  server_options.http_num_threads = FLAGS_http_server_num_threads;
-  server_options.http_max_concurrency = FLAGS_http_server_max_concurrency;
-  server_options.rpc_server_host = xllm_service::utils::get_local_ip();
-  server_options.rpc_port = FLAGS_rpc_server_port;
-  server_options.rpc_idle_timeout_s = FLAGS_rpc_server_idle_timeout_s;
-  server_options.rpc_num_threads = FLAGS_rpc_server_num_threads;
-  server_options.rpc_max_concurrency = FLAGS_rpc_server_max_concurrency;
-  server_options.etcd_addr = FLAGS_etcd_addr;
-  server_options.load_balance_policy = FLAGS_load_balance_policy;
-  server_options.detect_disconnected_instance_interval =
-      FLAGS_detect_disconnected_instance_interval;
-  server_options.enable_request_trace = FLAGS_enable_request_trace;
+  xllm_service::Options options;
+  options.server_host(FLAGS_server_host)
+      .http_port(FLAGS_http_server_port)
+      .http_idle_timeout_s(FLAGS_http_server_idle_timeout_s)
+      .http_num_threads(FLAGS_http_server_num_threads)
+      .http_max_concurrency(FLAGS_http_server_max_concurrency)
+      .rpc_port(FLAGS_rpc_server_port)
+      .rpc_idle_timeout_s(FLAGS_rpc_server_idle_timeout_s)
+      .rpc_num_threads(FLAGS_rpc_server_num_threads)
+      .rpc_max_concurrency(FLAGS_rpc_server_max_concurrency)
+      .num_threads(FLAGS_num_threads)
+      .max_concurrency(FLAGS_max_concurrency)
+      .timeout_ms(FLAGS_timeout_ms)
+      .etcd_addr(FLAGS_etcd_addr)
+      .load_balance_policy(FLAGS_load_balance_policy)
+      .murmur_hash3_seed(FLAGS_murmur_hash3_seed)
+      .service_name(xllm_service::utils::get_local_ip() + ":" +
+                    std::to_string(FLAGS_rpc_server_port))
+      .detect_disconnected_instance_interval(
+          FLAGS_detect_disconnected_instance_interval)
+      .enable_request_trace(FLAGS_enable_request_trace)
+      .block_size(FLAGS_block_size)
+      .tokenizer_path(FLAGS_tokenizer_path);
 
-  server_options.tokenizer_path = FLAGS_tokenizer_path;
-  server_options.block_size = FLAGS_block_size;
-  server_options.model_type = FLAGS_model_type;
-  server_options.tokenizer_path = FLAGS_tokenizer_path;
-
-  server_options.num_threads = FLAGS_num_threads;
-  server_options.timeout_ms = FLAGS_timeout_ms;
-  server_options.test_instance_addr = FLAGS_test_instance_addr;
-
-  xllm_service::Master master(server_options);
+  xllm_service::Master master(options);
 
   if (!master.start()) {
     LOG(ERROR) << "Failed to start master service.";

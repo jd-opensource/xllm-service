@@ -36,26 +36,6 @@ using Murmur3KeyCacheMap = std::unordered_map<Murmur3Key,
                                               FixedStringKeyHash,
                                               FixedStringKeyEqual>;
 
-struct HttpServiceConfig {
-  int num_threads = 16;
-  int timeout_ms = -1;
-  std::string test_instance_addr = "";
-  bool enable_request_trace = false;
-};
-
-struct RpcServiceConfig {
-  std::string etcd_addr = "";
-  std::string load_balance_policy = "";
-  int detect_disconnected_instance_interval = 15;  // seconds
-  std::string service_name = "";
-};
-
-struct ModelConfig {
-  int32_t block_size = 16;
-  std::string model_type = "chatglm";
-  std::string tokenizer_path = "";
-};
-
 struct Routing {
   std::string prefill_name;
   std::string decode_name;

@@ -22,45 +22,15 @@ limitations under the License.
 #include "common/types.h"
 #include "common/utils.h"
 #include "common/xllm/status.h"
+#include "scheduler/scheduler.h"
 
 namespace xllm_service {
 
-namespace {
-grpc::StatusCode to_grpc_status_code(llm::StatusCode code) {
-  switch (code) {
-    case llm::StatusCode::OK:
-      return grpc::StatusCode::OK;
-    case llm::StatusCode::CANCELLED:
-      return grpc::StatusCode::CANCELLED;
-    case llm::StatusCode::UNKNOWN:
-      return grpc::StatusCode::UNKNOWN;
-    case llm::StatusCode::INVALID_ARGUMENT:
-      return grpc::StatusCode::INVALID_ARGUMENT;
-    case llm::StatusCode::DEADLINE_EXCEEDED:
-      return grpc::StatusCode::DEADLINE_EXCEEDED;
-    case llm::StatusCode::RESOURCE_EXHAUSTED:
-      return grpc::StatusCode::RESOURCE_EXHAUSTED;
-    case llm::StatusCode::UNAUTHENTICATED:
-      return grpc::StatusCode::UNAUTHENTICATED;
-    case llm::StatusCode::UNAVAILABLE:
-      return grpc::StatusCode::UNAVAILABLE;
-    case llm::StatusCode::UNIMPLEMENTED:
-      return grpc::StatusCode::UNIMPLEMENTED;
-    default:
-      LOG(WARNING) << "Unknown status code: " << static_cast<uint8_t>(code);
-  }
-  return grpc::StatusCode::UNKNOWN;
-}
-}  // namespace
-
-XllmRpcServiceImpl::XllmRpcServiceImpl(const RpcServiceConfig& rpc_config,
-                                       const ModelConfig& model_config,
-                                       const HttpServiceConfig& http_config) {
+XllmRpcServiceImpl::XllmRpcServiceImpl(const Options& options,
+                                       Scheduler* scheduler)
+    : options_(options), scheduler_(scheduler) {
   enable_decode_response_to_service_ =
       utils::get_bool_env("ENABLE_DECODE_RESPONSE_TO_SERVICE", false);
-
-  scheduler_ =
-      std::make_unique<Scheduler>(rpc_config, model_config, http_config);
 }
 
 XllmRpcServiceImpl::~XllmRpcServiceImpl() { scheduler_->exited(); }
@@ -79,193 +49,19 @@ std::vector<std::string> XllmRpcServiceImpl::get_static_decode_list(
   return scheduler_->get_static_decode_list(instance_name);
 }
 
-bool XllmRpcServiceImpl::schedule(const std::string& prompt,
-                                  ScheduleResult* res) {
-  return scheduler_->schedule(prompt, res);
-}
-
-bool XllmRpcServiceImpl::schedule(const ChatMessages& messages,
-                                  ScheduleResult* res) {
-  return scheduler_->schedule(messages, res);
-}
-
-std::shared_ptr<brpc::Channel> XllmRpcServiceImpl::get_channel(
-    const std::string& target_name) {
-  return scheduler_->get_channel(target_name);
-}
-
 bool XllmRpcServiceImpl::handle_generation(
     const llm::RequestOutput& request_output) {
-  const std::string& service_request_id = request_output.service_request_id;
-  OutputCallback cb;
-  {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    auto it = callbacks_.find(service_request_id);
-    if (it == callbacks_.end()) {
-      LOG(ERROR) << "Can not found the callback for the received request "
-                    "output, request id is: "
-                 << service_request_id;
-      return false;
-    }
-    cb = it->second;
-  }
-
-  size_t req_thread_idx = -1;
-  {
-    std::lock_guard<std::mutex> guard(thread_map_mutex_);
-    auto it = remote_requests_output_thread_map_.find(service_request_id);
-    if (it == remote_requests_output_thread_map_.end()) {
-      LOG(ERROR) << "Can not found the thread for the received request output, "
-                    "request id is: "
-                 << service_request_id;
-      return false;
-    }
-    req_thread_idx = it->second;
-  }
-
-  output_threadpools_[req_thread_idx].schedule(
-      [this,
-       service_request_id,
-       cb,
-       request_output = std::move(request_output)]() mutable {
-        if (!cb(request_output) || request_output.finished) {
-          finish_request(service_request_id);
-        }
-      });
-
-  return true;
-}
-
-void XllmRpcServiceImpl::finish_request(const std::string& service_request_id) {
-  {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    callbacks_.erase(service_request_id);
-  }
-
-  {
-    std::lock_guard<std::mutex> guard(thread_map_mutex_);
-    remote_requests_output_thread_map_.erase(service_request_id);
-  }
-}
-
-bool XllmRpcServiceImpl::record_new_request(
-    std::shared_ptr<ChatCallData> call_data,
-    const std::string& service_request_id,
-    bool stream,
-    const std::string& model,
-    bool include_usage) {
-  {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    if (callbacks_.find(service_request_id) != callbacks_.end()) {
-      LOG(ERROR) << "The request ID already exists. Requests with the same ID "
-                    "are not allowed. "
-                 << service_request_id;
-      return false;
-    }
-    callbacks_[service_request_id] =
-        [this,
-         call_data,
-         model,
-         stream,
-         include_usage,
-         first_message_sent = std::unordered_set<size_t>(),
-         service_request_id,
-         created_time = absl::ToUnixSeconds(absl::Now())](
-            const llm::RequestOutput& req_output) mutable -> bool {
-      if (req_output.status.has_value()) {
-        const auto& status = req_output.status.value();
-        if (!status.ok()) {
-          return call_data->finish_with_error(
-              to_grpc_status_code(status.code()), status.message());
-        }
-      }
-
-      if (stream) {
-        return response_handler_.send_delta_to_client(call_data,
-                                                      &first_message_sent,
-                                                      include_usage,
-                                                      service_request_id,
-                                                      created_time,
-                                                      model,
-                                                      req_output);
-      }
-
-      return response_handler_.send_result_to_client(
-          call_data, service_request_id, created_time, model, req_output);
-    };
-  }
-
-  {
-    // allocate thread for the request
-    std::lock_guard<std::mutex> guard(thread_map_mutex_);
-    remote_requests_output_thread_map_[service_request_id] = next_thread_idx;
-    next_thread_idx = (++next_thread_idx) % kOutputTheadNum_;
-  }
-
-  return true;
-}
-
-bool XllmRpcServiceImpl::record_new_request(
-    std::shared_ptr<CompletionCallData> call_data,
-    const std::string& service_request_id,
-    bool stream,
-    const std::string& model,
-    bool include_usage) {
-  {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    if (callbacks_.find(service_request_id) != callbacks_.end()) {
-      LOG(ERROR) << "The request ID already exists. Requests with the same ID "
-                    "are not allowed. "
-                 << service_request_id;
-      return false;
-    }
-    callbacks_[service_request_id] =
-        [this,
-         call_data,
-         model,
-         stream,
-         include_usage,
-         service_request_id,
-         created_time = absl::ToUnixSeconds(absl::Now())](
-            const llm::RequestOutput& req_output) mutable -> bool {
-      if (req_output.status.has_value()) {
-        const auto& status = req_output.status.value();
-        if (!status.ok()) {
-          return call_data->finish_with_error(
-              to_grpc_status_code(status.code()), status.message());
-        }
-      }
-
-      if (stream) {
-        return response_handler_.send_delta_to_client(call_data,
-                                                      include_usage,
-                                                      service_request_id,
-                                                      created_time,
-                                                      model,
-                                                      req_output);
-      }
-
-      return response_handler_.send_result_to_client(
-          call_data, service_request_id, created_time, model, req_output);
-    };
-  }
-
-  {
-    // allocate thread for the request
-    std::lock_guard<std::mutex> guard(thread_map_mutex_);
-    remote_requests_output_thread_map_[service_request_id] = next_thread_idx;
-    next_thread_idx = (++next_thread_idx) % kOutputTheadNum_;
-  }
-
-  return true;
+  return scheduler_->handle_generation(request_output);
 }
 
 ServiceConfig XllmRpcServiceImpl::get_config() {
   return ServiceConfig(enable_decode_response_to_service_);
 }
 
-XllmRpcService::XllmRpcService(std::shared_ptr<XllmRpcServiceImpl> service)
-    : xllm_service_(service) {}
+XllmRpcService::XllmRpcService(const Options& options, Scheduler* scheduler) {
+  xllm_rpc_service_impl_ =
+      std::make_unique<XllmRpcServiceImpl>(options, scheduler);
+}
 
 XllmRpcService::~XllmRpcService() {}
 
@@ -282,7 +78,8 @@ void XllmRpcService::GetInstanceInfo(google::protobuf::RpcController* cntl_base,
                                      proto::InstanceMetaInfo* resp,
                                      google::protobuf::Closure* done) {
   brpc::ClosureGuard done_guard(done);
-  InstanceMetaInfo metainfo = xllm_service_->get_instance_info(req->name());
+  InstanceMetaInfo metainfo =
+      xllm_rpc_service_impl_->get_instance_info(req->name());
   resp->set_name(metainfo.name);
   resp->set_rpc_address(metainfo.rpc_address);
   if (metainfo.type == InstanceType::PREFILL) {
@@ -312,7 +109,7 @@ void XllmRpcService::Heartbeat(google::protobuf::RpcController* cntl_base,
                                proto::Status* resp,
                                google::protobuf::Closure* done) {
   brpc::ClosureGuard done_guard(done);
-  xllm_service_->heartbeat(req);
+  xllm_rpc_service_impl_->heartbeat(req);
   resp->set_ok(true);
 }
 
@@ -323,7 +120,7 @@ void XllmRpcService::GetStaticDecodeList(
     google::protobuf::Closure* done) {
   brpc::ClosureGuard done_guard(done);
   std::vector<std::string> decode_list =
-      xllm_service_->get_static_decode_list(req->name());
+      xllm_rpc_service_impl_->get_static_decode_list(req->name());
   for (auto& d : decode_list) {
     *(resp->mutable_names()->Add()) = std::move(d);
   }
@@ -391,7 +188,7 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
       request_output.outputs.emplace_back(std::move(sequence_output));
     }
     resp->mutable_all_status()->Add()->set_ok(
-        xllm_service_->handle_generation(request_output));
+        xllm_rpc_service_impl_->handle_generation(request_output));
   }
 }
 
@@ -400,7 +197,7 @@ void XllmRpcService::GetConfig(google::protobuf::RpcController* cntl_base,
                                proto::ServiceConfig* resp,
                                google::protobuf::Closure* done) {
   brpc::ClosureGuard done_guard(done);
-  auto config = xllm_service_->get_config();
+  auto config = xllm_rpc_service_impl_->get_config();
   resp->set_enable_decode_response_to_service(
       config.enable_decode_response_to_service);
 }

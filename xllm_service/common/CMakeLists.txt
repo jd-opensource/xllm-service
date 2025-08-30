@@ -32,5 +32,6 @@ cc_library(
     gflags::gflags
     nlohmann_json::nlohmann_json
     SMHasherSupport
+    proto_xllm
 )
 add_dependencies(common brpc-static)

@@ -18,23 +18,12 @@ limitations under the License.
 #include <mutex>
 #include <unordered_map>
 
-#include "chat.pb.h"
 #include "common/call_data.h"
 #include "common/threadpool.h"
 #include "common/xllm/output.h"
 #include "common/xllm/status.h"
-#include "completion.pb.h"
-#include "xllm_rpc_service.pb.h"
 
 namespace xllm_service {
-
-using CompletionCallData = StreamCallData<llm::proto::CompletionRequest,
-                                          llm::proto::CompletionResponse>;
-
-using ChatCallData =
-    StreamCallData<llm::proto::ChatRequest, llm::proto::ChatResponse>;
-
-using OutputCallback = std::function<bool(llm::RequestOutput output)>;
 
 class ResponseHandler final {
  public:
