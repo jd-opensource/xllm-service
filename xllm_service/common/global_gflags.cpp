@@ -15,9 +15,9 @@ limitations under the License.
 
 #include "common/global_gflags.h"
 
-DEFINE_string(http_server_host,
+DEFINE_string(server_host,
               "",
-              "Http server listen address, may be IPV4/IPV6/UDS."
+              "Server listen address, may be IPV4/IPV6/UDS."
               " If this is set, the flag port will be ignored");
 
 DEFINE_int32(http_server_port, 8888, "Port for xllm http service to listen on");
@@ -60,10 +60,6 @@ DEFINE_int32(max_concurrency,
              128,
              "Limit number of requests processed in parallel");
 
-DEFINE_string(test_instance_addr,
-              "0.0.0.0:9999",
-              "Xllm instance listen addr for testing.");
-
 DEFINE_int32(timeout_ms,
              -1,
              "Max duration of bRPC Channel. -1 means wait indefinitely.");
@@ -91,7 +87,5 @@ DEFINE_int32(block_size,
              "Number of slots per kv cache block. Default is 16.");
 
 DEFINE_string(tokenizer_path, "", "tokenizer config path.");
-
-DEFINE_string(model_type, "", "model type.");
 
 DEFINE_bool(enable_request_trace, false, "Whether to enable request trace");

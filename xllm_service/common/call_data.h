@@ -19,11 +19,15 @@ limitations under the License.
 #include <brpc/controller.h>
 #include <butil/iobuf.h>
 #include <glog/logging.h>
-#include <grpcpp/grpcpp.h>
 #include <json2pb/pb_to_json.h>
 
 #include <functional>
 #include <string>
+
+#include "chat.pb.h"
+#include "completion.pb.h"
+
+namespace xllm_service {
 
 // Interface for the classes that are used to handle grpc requests.
 class CallData {
@@ -111,28 +115,13 @@ class StreamCallData : public CallData {
     return true;
   }
 
-  bool finish_with_error(const grpc::StatusCode& code,
-                         const std::string& error_message) {
-    if (!stream_) {
-      controller_->SetFailed(error_message);
-
-    } else {
-      io_buf_.clear();
-      io_buf_.append(error_message);
-      pa_->Write(io_buf_);
-    }
-
-    return true;
-  }
-
-  bool write_and_finish(Response& response,
-                        grpc::Status grpc_status = grpc::Status::OK) {
+  bool write_and_finish(Response& response) {
     butil::IOBufAsZeroCopyOutputStream json_output(
         &controller_->response_attachment());
     std::string err_msg;
     if (!json2pb::ProtoMessageToJson(
             response, &json_output, json_options_, &err_msg)) {
-      return finish_with_error(grpc::StatusCode::INTERNAL, err_msg);
+      return finish_with_error(err_msg);
     }
 
     if (trace_callback_) {
@@ -229,3 +218,11 @@ class StreamCallData : public CallData {
   json2pb::Pb2JsonOptions json_options_;
   std::function<void(const std::string&)> trace_callback_;
 };
+
+using CompletionCallData = StreamCallData<llm::proto::CompletionRequest,
+                                          llm::proto::CompletionResponse>;
+
+using ChatCallData =
+    StreamCallData<llm::proto::ChatRequest, llm::proto::ChatResponse>;
+
+}  // namespace xllm_service

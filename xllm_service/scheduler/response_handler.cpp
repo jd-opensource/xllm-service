@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "rpc_service/response_handler.h"
+#include "response_handler.h"
 
 namespace xllm_service {
 

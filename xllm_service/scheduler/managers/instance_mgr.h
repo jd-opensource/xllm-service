@@ -24,6 +24,7 @@ limitations under the License.
 
 #include "../etcd_client/etcd_client.h"
 #include "common/macros.h"
+#include "common/options.h"
 #include "common/threadpool.h"
 #include "common/types.h"
 #include "xllm_rpc_service.pb.h"
@@ -32,8 +33,8 @@ namespace xllm_service {
 
 class InstanceMgr final {
  public:
-  explicit InstanceMgr(const std::shared_ptr<EtcdClient>& etcd_client,
-                       const HttpServiceConfig& config,
+  explicit InstanceMgr(const Options& options,
+                       const std::shared_ptr<EtcdClient>& etcd_client,
                        const bool is_master_service);
 
   ~InstanceMgr();
@@ -69,12 +70,11 @@ class InstanceMgr final {
                            const uint64_t& prefix_len);
 
  private:
+  Options options_;
+
   bool exited_ = false;
   bool use_etcd_ = false;
   std::atomic_bool is_master_service_ = false;
-
-  RpcServiceConfig config_;
-  HttpServiceConfig http_config_;
 
   std::shared_ptr<EtcdClient> etcd_client_;
 
