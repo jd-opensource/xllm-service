@@ -19,6 +19,7 @@ limitations under the License.
 #include <grpcpp/grpcpp.h>
 
 #include "common/global_gflags.h"
+#include "common/options.h"
 #include "http_service/service.h"
 
 int main(int argc, char** argv) {
@@ -31,11 +32,8 @@ int main(int argc, char** argv) {
 
   LOG(INFO) << "Starting xllm http service, port: " << FLAGS_port;
 
-  xllm_service::HttpServiceConfig config;
-  config.num_threads = FLAGS_num_threads;
-  config.timeout_ms = FLAGS_timeout_ms;
-  config.test_instance_addr = FLAGS_test_instance_addr;
-  xllm_service::XllmHttpServiceImpl service_impl(config);
+  xllm_service::Options service_options;
+  xllm_service::XllmHttpServiceImpl service_impl(service_options, nullptr);
 
   // register http methods here
   brpc::Server server;

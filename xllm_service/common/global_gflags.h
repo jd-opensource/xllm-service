@@ -17,7 +17,7 @@ limitations under the License.
 
 #include <gflags/gflags.h>
 
-DECLARE_string(http_server_host);
+DECLARE_string(server_host);
 
 DECLARE_int32(http_server_port);
 
@@ -36,8 +36,6 @@ DECLARE_int32(rpc_server_num_threads);
 DECLARE_int32(rpc_server_max_concurrency);
 
 DECLARE_uint32(murmur_hash3_seed);
-
-DECLARE_string(test_instance_addr);
 
 DECLARE_int32(timeout_ms);
 
@@ -60,7 +58,5 @@ DECLARE_int32(detect_disconnected_instance_interval);
 DECLARE_int32(block_size);
 
 DECLARE_string(tokenizer_path);
-
-DECLARE_string(model_type);
 
 DECLARE_bool(enable_request_trace);

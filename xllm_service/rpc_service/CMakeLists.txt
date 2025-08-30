@@ -1,30 +1,20 @@
 include(cc_binary)
 include(cc_library)
 include(cc_test)
-add_subdirectory(etcd_client)
-add_subdirectory(managers)
-add_subdirectory(loadbalance_policy)
 
 cc_library(
   NAME
   xllm_rpc_service
   HDRS
-    scheduler.h
-    response_handler.h
     service.h
   SRCS
-    scheduler.cpp
-    response_handler.cpp
     service.cpp
   DEPS
     :common
-    :etcd_client
-    :managers
-    :loadbalance_policy
+    :scheduler
     absl::random_random
     absl::strings
     glog::glog
-    nlohmann_json::nlohmann_json
     proto::proto_rpc_service
     proto_xllm
     tokenizer

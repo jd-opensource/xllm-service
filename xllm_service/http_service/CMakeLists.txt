@@ -12,7 +12,7 @@ cc_library(
     request_tracer.cpp
   DEPS
     :common
-    :xllm_rpc_service
+    :scheduler
     absl::random_random
     absl::synchronization
     glog::glog

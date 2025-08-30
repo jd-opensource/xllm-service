@@ -28,10 +28,10 @@ inline size_t round_down(size_t n, size_t multiple) {
 static std::string ETCD_CACHE_PREFIX = "XLLM:CACHE:";
 
 GlobalKVCacheMgr::GlobalKVCacheMgr(
+    const Options& options,
     const std::shared_ptr<EtcdClient>& etcd_client,
-    const ModelConfig& model_config,
     const bool is_master_service)
-    : model_config_(model_config),
+    : options_(options),
       is_master_service_(is_master_service),
       etcd_client_(etcd_client) {
   if (!is_master_service_) {
@@ -71,24 +71,23 @@ void set_score(const std::unordered_set<std::string>& instance_names,
 void GlobalKVCacheMgr::match(const Slice<int32_t>& token_ids,
                              OverlapScores* overlap_scores) {
   // allign tokens to block boundary
-  const size_t n_tokens =
-      round_down(token_ids.size(), model_config_.block_size);
+  const size_t n_tokens = round_down(token_ids.size(), options_.block_size());
   if (n_tokens == 0) {
     return;
   }
 
-  overlap_scores->max_block_num = n_tokens / model_config_.block_size;
+  overlap_scores->max_block_num = n_tokens / options_.block_size();
 
   std::shared_lock lock(kvcache_mutex_);
   Murmur3Key token_hash_key;
-  for (size_t i = 0; i < n_tokens; i += model_config_.block_size) {
+  for (size_t i = 0; i < n_tokens; i += options_.block_size()) {
     if (i == 0) {
       murmur_hash3(nullptr,
-                   token_ids.slice(i, i + model_config_.block_size),
+                   token_ids.slice(i, i + options_.block_size()),
                    token_hash_key.data);
     } else {
       murmur_hash3(token_hash_key.data,
-                   token_ids.slice(i, i + model_config_.block_size),
+                   token_ids.slice(i, i + options_.block_size()),
                    token_hash_key.data);
     }
 
@@ -96,35 +95,32 @@ void GlobalKVCacheMgr::match(const Slice<int32_t>& token_ids,
     if (iter != kvcache_infos_.end() && !iter->second.empty()) {
       if (!iter->second.hbm_instance_set.empty()) {
         set_score(iter->second.hbm_instance_set,
-                  i / model_config_.block_size + 1,
+                  i / options_.block_size() + 1,
                   &(overlap_scores->hbm_instance_score),
                   &(overlap_scores->instances));
         overlap_scores->max_matched_instance_name =
             *iter->second.hbm_instance_set.begin();
-        overlap_scores->max_matched_block_num =
-            i / model_config_.block_size + 1;
+        overlap_scores->max_matched_block_num = i / options_.block_size() + 1;
       }
 
       if (!iter->second.dram_instance_set.empty()) {
         set_score(iter->second.dram_instance_set,
-                  i / model_config_.block_size + 1,
+                  i / options_.block_size() + 1,
                   &(overlap_scores->dram_instance_score),
                   &(overlap_scores->instances));
         overlap_scores->max_matched_instance_name =
             *iter->second.hbm_instance_set.begin();
-        overlap_scores->max_matched_block_num =
-            i / model_config_.block_size + 1;
+        overlap_scores->max_matched_block_num = i / options_.block_size() + 1;
       }
 
       if (!iter->second.ssd_instance_set.empty()) {
         set_score(iter->second.ssd_instance_set,
-                  i / model_config_.block_size + 1,
+                  i / options_.block_size() + 1,
                   &(overlap_scores->ssd_instance_score),
                   &(overlap_scores->instances));
         overlap_scores->max_matched_instance_name =
             *iter->second.hbm_instance_set.begin();
-        overlap_scores->max_matched_block_num =
-            i / model_config_.block_size + 1;
+        overlap_scores->max_matched_block_num = i / options_.block_size() + 1;
       }
     } else {
       break;

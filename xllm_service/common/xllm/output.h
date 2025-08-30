@@ -126,4 +126,7 @@ inline std::optional<std::string> to_string(FinishReason reason) {
 }
 
 }  // namespace llm
+
+using OutputCallback = std::function<bool(llm::RequestOutput output)>;
+
 }  // namespace xllm_service

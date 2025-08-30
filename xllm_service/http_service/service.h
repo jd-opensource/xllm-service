@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "chat.pb.h"
 #include "common/call_data.h"
+#include "common/options.h"
 #include "common/threadpool.h"
 #include "common/types.h"
 #include "completion.pb.h"
@@ -30,19 +31,12 @@ limitations under the License.
 
 namespace xllm_service {
 
-using CompletionCallData = StreamCallData<llm::proto::CompletionRequest,
-                                          llm::proto::CompletionResponse>;
-
-using ChatCallData =
-    StreamCallData<llm::proto::ChatRequest, llm::proto::ChatResponse>;
-
-class XllmRpcServiceImpl;
+class Scheduler;
+class InstanceMgr;
 
 class XllmHttpServiceImpl : public proto::XllmHttpService {
  public:
-  XllmHttpServiceImpl(const HttpServiceConfig& config);
-  XllmHttpServiceImpl(std::shared_ptr<XllmRpcServiceImpl> rpc_service,
-                      const HttpServiceConfig& config);
+  XllmHttpServiceImpl(const Options& options, Scheduler* scheduler);
   ~XllmHttpServiceImpl();
 
   void Hello(::google::protobuf::RpcController* controller,
@@ -117,10 +111,12 @@ class XllmHttpServiceImpl : public proto::XllmHttpService {
                    ::google::protobuf::Closure* done);
 
  private:
-  bool initialized_ = false;
-  HttpServiceConfig config_;
+  Options options_;
 
-  std::shared_ptr<XllmRpcServiceImpl> rpc_service_;
+  // not own
+  Scheduler* scheduler_;
+
+  bool initialized_ = false;
 
   std::unique_ptr<RequestTracer> request_tracer_;
 

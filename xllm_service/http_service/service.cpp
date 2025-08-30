@@ -30,7 +30,7 @@ limitations under the License.
 #include "common/utils.h"
 #include "common/xllm/uuid.h"
 #include "completion.pb.h"
-#include "rpc_service/service.h"
+#include "scheduler/scheduler.h"
 
 namespace xllm_service {
 
@@ -46,20 +46,16 @@ std::string generate_service_request_id(const std::string& method) {
 }
 }  // namespace
 
-XllmHttpServiceImpl::XllmHttpServiceImpl(
-    std::shared_ptr<XllmRpcServiceImpl> rpc_service,
-    const HttpServiceConfig& config)
-    : config_(config), rpc_service_(rpc_service) {
+XllmHttpServiceImpl::XllmHttpServiceImpl(const Options& options,
+                                         Scheduler* scheduler)
+    : options_(options), scheduler_(scheduler) {
   enable_decode_response_to_service_ =
       utils::get_bool_env("ENABLE_DECODE_RESPONSE_TO_SERVICE", false);
   initialized_ = true;
-  thread_pool_ = std::make_unique<ThreadPool>(config_.num_threads);
+  thread_pool_ = std::make_unique<ThreadPool>(options_.num_threads());
   request_tracer_ =
-      std::make_unique<RequestTracer>(config_.enable_request_trace);
+      std::make_unique<RequestTracer>(options_.enable_request_trace());
 }
-
-XllmHttpServiceImpl::XllmHttpServiceImpl(const HttpServiceConfig& config)
-    : XllmHttpServiceImpl(nullptr, config) {}
 
 XllmHttpServiceImpl::~XllmHttpServiceImpl() {}
 
@@ -151,19 +147,19 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
                                  const std::string& method) {
   // record request when enable_decode_response_to_service.
   if (enable_decode_response_to_service_) {
-    bool success = rpc_service_->record_new_request(
+    bool success = scheduler_->record_new_request(
         call_data, service_request_id, stream, model, include_usage);
     if (!success) {
       LOG(ERROR) << "rpc service add new request error: " << service_request_id;
       call_data->finish_with_error("Internal runtime error.");
-      rpc_service_->finish_request(service_request_id);
+      scheduler_->finish_request(service_request_id);
       return;
     }
   }
 
   // async redistribute the request and wait the response
   // TODO: optimize the thread pool to async mode.
-  brpc::Channel* channel_ptr = rpc_service_->get_channel(target_uri).get();
+  brpc::Channel* channel_ptr = scheduler_->get_channel(target_uri).get();
 
   // send request to prefill instance.
   thread_pool_->schedule([this,
@@ -190,7 +186,7 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
         LOG(ERROR) << "Redirect to instance error: "
                    << redirect_cntl->ErrorText();
         call_data->finish_with_error(redirect_cntl->ErrorText());
-        rpc_service_->finish_request(service_request_id);
+        scheduler_->finish_request(service_request_id);
         delete done;
         delete redirect_cntl;
         return;
@@ -328,7 +324,7 @@ void XllmHttpServiceImpl::post_serving(
   json_value["service_request_id"] = service_request_id;
 
   std::function<void(const std::string&)> trace_callback;
-  if (config_.enable_request_trace) {
+  if (options_.enable_request_trace()) {
     trace_callback = [this, service_request_id](const std::string& message) {
       request_tracer_->log(service_request_id, message);
     };
@@ -339,8 +335,8 @@ void XllmHttpServiceImpl::post_serving(
   ScheduleResult schedule_res;
   if (serving_method == "/v1/completions") {
     if (json_value.contains("prompt")) {
-      if (!rpc_service_->schedule(json_value.at("prompt").get<std::string>(),
-                                  &schedule_res)) {
+      if (!scheduler_->schedule(json_value.at("prompt").get<std::string>(),
+                                &schedule_res)) {
         cntl->SetFailed("Schedule fail!");
         LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
         return;
@@ -386,7 +382,7 @@ void XllmHttpServiceImpl::post_serving(
         return;
       }
 
-      if (!rpc_service_->schedule(messages, &schedule_res)) {
+      if (!scheduler_->schedule(messages, &schedule_res)) {
         cntl->SetFailed("Schedule fail!");
         LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
         return;
@@ -455,14 +451,14 @@ void XllmHttpServiceImpl::get_serving(
       cntl, false, done_guard.release(), nullptr);
 
   ScheduleResult schedule_res;
-  if (!rpc_service_->schedule("", &schedule_res)) {
+  if (!scheduler_->schedule("", &schedule_res)) {
     cntl->SetFailed("Schedule fail!");
     LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
     return;
   }
 
   brpc::Channel* channel_ptr =
-      rpc_service_->get_channel(schedule_res.routing.prefill_name).get();
+      scheduler_->get_channel(schedule_res.routing.prefill_name).get();
   std::string target_uri = schedule_res.routing.prefill_name + serving_method;
 
   thread_pool_->schedule(

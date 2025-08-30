@@ -27,8 +27,6 @@ limitations under the License.
 
 namespace xllm_service {
 
-// magic number, TODO: move to config file or env var
-static constexpr int kDetectIntervals = 15;  // 15seconds
 static std::unordered_map<InstanceType, std::string> ETCD_KEYS_PREFIX_MAP = {
     {InstanceType::DEFAULT, "XLLM:DEFAULT:"},
     {InstanceType::PREFILL, "XLLM:PREFILL:"},
@@ -37,10 +35,10 @@ static std::unordered_map<InstanceType, std::string> ETCD_KEYS_PREFIX_MAP = {
 static std::string ETCD_ALL_KEYS_PREFIX = "XLLM:";
 static std::string ETCD_LOADMETRICS_PREFIX = "XLLM:LOADMETRICS:";
 
-InstanceMgr::InstanceMgr(const std::shared_ptr<EtcdClient>& etcd_client,
-                         const HttpServiceConfig& config,
+InstanceMgr::InstanceMgr(const Options& options,
+                         const std::shared_ptr<EtcdClient>& etcd_client,
                          const bool is_master_service)
-    : http_config_(config),
+    : options_(options),
       is_master_service_(is_master_service),
       etcd_client_(etcd_client) {
   auto handle_instance_metainfo =
@@ -277,7 +275,7 @@ bool InstanceMgr::create_channel(const std::string& instance_name) {
     brpc::ChannelOptions options;
     // Add to params
     options.protocol = "http";
-    options.timeout_ms = http_config_.timeout_ms; /*milliseconds*/
+    options.timeout_ms = options_.timeout_ms(); /*milliseconds*/
     options.max_retry = 3;
     std::string load_balancer = "";
     if (channel->Init(instance_name.c_str(), load_balancer.c_str(), &options) !=
