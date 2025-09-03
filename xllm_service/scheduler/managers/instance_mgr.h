@@ -22,11 +22,12 @@ limitations under the License.
 #include <unordered_map>
 #include <unordered_set>
 
-#include "../etcd_client/etcd_client.h"
 #include "common/macros.h"
 #include "common/options.h"
 #include "common/threadpool.h"
+#include "common/ttft_predictor.h"
 #include "common/types.h"
+#include "scheduler/etcd_client/etcd_client.h"
 #include "xllm_rpc_service.pb.h"
 
 namespace xllm_service {
@@ -80,6 +81,7 @@ class InstanceMgr final {
 
   std::shared_mutex inst_mutex_;
   std::unordered_map<std::string, InstanceMetaInfo> instances_;
+  std::unordered_map<std::string, TtftPredictor> ttft_predictors_;
   std::vector<std::string> prefill_index_;
   std::vector<std::string> decode_index_;
   uint64_t next_prefill_index_ = 0;

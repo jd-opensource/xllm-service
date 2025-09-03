@@ -66,6 +66,11 @@ void InstanceMgr::init() {
     for (auto& it : ETCD_KEYS_PREFIX_MAP) {
       etcd_client_->get_prefix(it.second, &instances_);
     }
+    // create ttft predictor for each instance
+    for (auto& pair : instances_) {
+      ttft_predictors_.insert_or_assign(
+          pair.first, TtftPredictor(pair.second.ttft_profiling_data));
+    }
     LOG(INFO) << "Load instance info from etcd:" << instances_.size();
     std::vector<std::string> channel_creat_fail_insts;
     prefill_index_.reserve(instances_.size());
@@ -94,6 +99,7 @@ void InstanceMgr::init() {
     }
     for (auto& name : channel_creat_fail_insts) {
       instances_.erase(name);
+      ttft_predictors_.erase(name);
     }
   }
   {
@@ -334,6 +340,10 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
           continue;
         }
 
+        // create ttft predictor for instance
+        ttft_predictors_.emplace(
+            iter.first, TtftPredictor(iter.second.ttft_profiling_data));
+
         instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
 
         switch (iter.second.type) {
@@ -385,6 +395,7 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
         }
 
         instances_.erase(iter);
+        ttft_predictors_.erase(iter);
         cached_channels_.erase(iter);
         {
           std::lock_guard<std::mutex> lock(update_mutex_);
