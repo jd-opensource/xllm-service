@@ -20,6 +20,8 @@ limitations under the License.
 #include <brpc/controller.h>
 #include <brpc/progressive_reader.h>
 #include <glog/logging.h>
+#include <json2pb/json_to_pb.h>
+#include <json2pb/pb_to_json.h>
 
 #include <functional>
 #include <nlohmann/json.hpp>
@@ -139,32 +141,28 @@ class CustomProgressiveReader : public brpc::ProgressiveReader {
 template <typename T>
 void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
                                  const std::string& req_attachment,
-                                 const std::string& service_request_id,
-                                 bool stream,
-                                 const std::string& model,
-                                 bool include_usage,
-                                 const std::string& target_uri,
+                                 std::shared_ptr<Request> request,
                                  const std::string& method) {
   // record request when enable_decode_response_to_service.
   if (enable_decode_response_to_service_) {
-    bool success = scheduler_->record_new_request(
-        call_data, service_request_id, stream, model, include_usage);
+    bool success = scheduler_->record_new_request(call_data, request);
     if (!success) {
-      LOG(ERROR) << "rpc service add new request error: " << service_request_id;
+      LOG(ERROR) << "rpc service add new request error: "
+                 << request->service_request_id;
       call_data->finish_with_error("Internal runtime error.");
-      scheduler_->finish_request(service_request_id);
+      scheduler_->finish_request(request->service_request_id);
       return;
     }
   }
 
   // async redistribute the request and wait the response
   // TODO: optimize the thread pool to async mode.
+  auto& target_uri = request->routing.prefill_name;
   brpc::Channel* channel_ptr = scheduler_->get_channel(target_uri).get();
 
   // send request to prefill instance.
   thread_pool_->schedule([this,
-                          service_request_id,
-                          stream,
+                          request,
                           req_attachment = std::move(req_attachment),
                           call_data,
                           channel_ptr,
@@ -180,13 +178,13 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
     //
     if (enable_decode_response_to_service_) {
       google::protobuf::Closure* done = brpc::NewCallback(
-          &handle_first_response<T>, redirect_cntl, call_data, stream);
+          &handle_first_response<T>, redirect_cntl, call_data, request->stream);
       channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
       if (redirect_cntl->Failed()) {
         LOG(ERROR) << "Redirect to instance error: "
                    << redirect_cntl->ErrorText();
         call_data->finish_with_error(redirect_cntl->ErrorText());
-        scheduler_->finish_request(service_request_id);
+        scheduler_->finish_request(request->service_request_id);
         delete done;
         delete redirect_cntl;
         return;
@@ -196,7 +194,7 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
 
     // 2. tokens will be received via http channel.
     //
-    if (stream) {
+    if (request->stream) {
       // receive tokens in progressive mode.
       redirect_cntl->response_will_be_read_progressively();
 
@@ -229,190 +227,34 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
   });
 }
 
-void XllmHttpServiceImpl::handle_v1_completions(
-    std::shared_ptr<CompletionCallData> call_data,
-    const std::string& req_attachment,
-    const std::string& service_request_id,
-    bool stream,
-    const std::string& model,
-    bool include_usage,
-    const std::string& target_uri) {
-  handle(call_data,
-         req_attachment,
-         service_request_id,
-         stream,
-         model,
-         include_usage,
-         target_uri,
-         "/v1/completions");
-}
+template <typename T>
+std::shared_ptr<Request> XllmHttpServiceImpl::generate_request(
+    T* req_pb,
+    const std::string& method) {
+  auto request = std::make_shared<Request>();
+  request->model = req_pb->model();
 
-void XllmHttpServiceImpl::handle_v1_chat_completions(
-    std::shared_ptr<ChatCallData> call_data,
-    const std::string& req_attachment,
-    const std::string& service_request_id,
-    bool stream,
-    const std::string& model,
-    bool include_usage,
-    const std::string& target_uri) {
-  handle(call_data,
-         req_attachment,
-         service_request_id,
-         stream,
-         model,
-         include_usage,
-         target_uri,
-         "/v1/chat/completions");
-}
-
-void XllmHttpServiceImpl::post_serving(
-    const std::string& serving_method,
-    ::google::protobuf::RpcController* controller,
-    const proto::HttpRequest* request,
-    proto::HttpResponse* response,
-    ::google::protobuf::Closure* done) {
-  assert(initialized_);
-  ClosureGuard done_guard(done);
-  auto cntl = reinterpret_cast<brpc::Controller*>(controller);
-
-  if (!request || !response || !controller) {
-    LOG(ERROR) << "brpc request | respose | controller is null";
-    cntl->SetFailed("brpc request | respose | controller is null");
-    return;
-  }
-
-  nlohmann::json json_value;
-  try {
-    json_value = nlohmann::json::parse(cntl->request_attachment().to_string());
-  } catch (const std::exception& e) {
-    std::stringstream ss;
-    ss << "Json parse request failed, error: " << e.what() << std::endl;
-    LOG(ERROR) << ss.str();
-    cntl->SetFailed(ss.str());
-    return;
-  }
-  bool stream = false;
-  if (json_value.contains("stream")) {
-    try {
-      stream = json_value.at("stream").get<bool>();
-    } catch (const std::exception& e) {
-      LOG(ERROR)
-          << "Invalid args(stream) type in request, required bool type value.";
-      cntl->SetFailed(
-          "Invalid args(stream) type in request, required bool type value.");
-      return;
-    }
-  }
-  std::string model = json_value.at("model").get<std::string>();
-  bool include_usage = false;
-  if (json_value.contains("stream_options")) {
-    try {
-      include_usage =
-          json_value["stream_options"].at("include_usage").get<bool>();
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "Invalid args(include_usage) type in request, required "
-                    "bool type value.";
-      cntl->SetFailed(
-          "Invalid args(include_usage) type in request, required "
-          "bool type value.");
-      return;
-    }
-  }
   // TODO: add `created_time` fileds etc.
   // create xllm_service request_id: service_request_id
-  std::string service_request_id = generate_service_request_id(serving_method);
-  json_value["service_request_id"] = service_request_id;
+  request->service_request_id = generate_service_request_id(method);
 
-  std::function<void(const std::string&)> trace_callback;
+  if (req_pb->has_stream()) {
+    request->stream = req_pb->stream();
+  }
+
+  if (req_pb->has_stream_options()) {
+    request->include_usage = req_pb->stream_options().include_usage();
+  }
+
   if (options_.enable_request_trace()) {
-    trace_callback = [this, service_request_id](const std::string& message) {
-      request_tracer_->log(service_request_id, message);
-    };
-  } else {
-    trace_callback = nullptr;
+    request->trace_callback =
+        [this, service_request_id = request->service_request_id](
+            const std::string& message) {
+          request_tracer_->log(service_request_id, message);
+        };
   }
 
-  ScheduleResult schedule_res;
-  if (serving_method == "/v1/completions") {
-    if (json_value.contains("prompt")) {
-      if (!scheduler_->schedule(json_value.at("prompt").get<std::string>(),
-                                &schedule_res)) {
-        cntl->SetFailed("Schedule fail!");
-        LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
-        return;
-      }
-    } else {
-      cntl->SetFailed("Input has no prompt!");
-      LOG(ERROR) << "Input has no prompt!";
-      return;
-    }
-    json_value["token_ids"] = std::move(schedule_res.token_ids);
-    json_value["routing"] = std::move(schedule_res.routing.serialize_to_json());
-
-    std::string req_attachment = json_value.dump();
-    auto arena = response->GetArena();
-    auto resp_pb =
-        google::protobuf::Arena::CreateMessage<llm::proto::CompletionResponse>(
-            arena);
-    auto call_data = std::make_shared<CompletionCallData>(
-        cntl, stream, done_guard.release(), resp_pb);
-    handle_v1_completions(call_data,
-                          req_attachment,
-                          service_request_id,
-                          stream,
-                          model,
-                          include_usage,
-                          schedule_res.routing.prefill_name);
-  } else if (serving_method == "/v1/chat/completions") {
-    if (json_value.contains("messages") && json_value["messages"].is_array()) {
-      ChatMessages messages;
-      try {
-        const auto& msgs = json_value["messages"];
-        messages.reserve(msgs.size());
-        for (const auto& msg : msgs) {
-          if (msg.contains("role") && msg["role"].is_string() &&
-              msg.contains("content") && msg["content"].is_string()) {
-            messages.emplace_back(msg["role"].get<std::string>(),
-                                  msg["content"].get<std::string>());
-          }
-        }
-      } catch (const nlohmann::json::exception& e) {
-        cntl->SetFailed("Parse request fail, Invalid messages!");
-        LOG(ERROR) << "Parse request fail, Invalid messages!";
-        return;
-      }
-
-      if (!scheduler_->schedule(messages, &schedule_res)) {
-        cntl->SetFailed("Schedule fail!");
-        LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
-        return;
-      }
-    } else {
-      cntl->SetFailed("Input has no messages!");
-      LOG(ERROR) << "Input has no messages!";
-      return;
-    }
-    json_value["token_ids"] = std::move(schedule_res.token_ids);
-    json_value["routing"] = std::move(schedule_res.routing.serialize_to_json());
-
-    std::string req_attachment = json_value.dump();
-    auto arena = response->GetArena();
-    auto resp_pb =
-        google::protobuf::Arena::CreateMessage<llm::proto::ChatResponse>(arena);
-    auto call_data = std::make_shared<ChatCallData>(
-        cntl, stream, done_guard.release(), resp_pb);
-    handle_v1_chat_completions(call_data,
-                               req_attachment,
-                               service_request_id,
-                               stream,
-                               model,
-                               include_usage,
-                               schedule_res.routing.prefill_name);
-  } else {
-    LOG(ERROR) << "Not supported method: " << serving_method;
-    cntl->SetFailed("Not supported method: " + serving_method);
-    return;
-  }
+  return request;
 }
 
 namespace {
@@ -450,16 +292,17 @@ void XllmHttpServiceImpl::get_serving(
   auto call_data = std::make_shared<CompletionCallData>(
       cntl, false, done_guard.release(), nullptr);
 
-  ScheduleResult schedule_res;
-  if (!scheduler_->schedule("", &schedule_res)) {
-    cntl->SetFailed("Schedule fail!");
-    LOG(ERROR) << "XllmRpcServiceImpl::schedule error!";
+  auto service_request = std::make_shared<Request>();
+  if (!scheduler_->schedule(service_request)) {
+    cntl->SetFailed("Schedule request failed!");
+    LOG(ERROR) << "Schedule request failed!";
     return;
   }
 
   brpc::Channel* channel_ptr =
-      scheduler_->get_channel(schedule_res.routing.prefill_name).get();
-  std::string target_uri = schedule_res.routing.prefill_name + serving_method;
+      scheduler_->get_channel(service_request->routing.prefill_name).get();
+  std::string target_uri =
+      service_request->routing.prefill_name + serving_method;
 
   thread_pool_->schedule(
       [/*req_attachment, */ call_data, cntl, channel_ptr, target_uri]() {
@@ -488,7 +331,68 @@ void XllmHttpServiceImpl::Completions(
     const proto::HttpRequest* request,
     proto::HttpResponse* response,
     ::google::protobuf::Closure* done) {
-  post_serving("/v1/completions", controller, request, response, done);
+  assert(initialized_);
+  ClosureGuard done_guard(done);
+  auto cntl = reinterpret_cast<brpc::Controller*>(controller);
+
+  if (!request || !response || !controller) {
+    LOG(ERROR) << "brpc request | respose | controller is null";
+    cntl->SetFailed("brpc request | respose | controller is null");
+    return;
+  }
+
+  auto arena = response->GetArena();
+  auto req_pb =
+      google::protobuf::Arena::CreateMessage<llm::proto::CompletionRequest>(
+          arena);
+  auto resp_pb =
+      google::protobuf::Arena::CreateMessage<llm::proto::CompletionResponse>(
+          arena);
+
+  std::string attachment = std::move(cntl->request_attachment().to_string());
+  std::string error;
+  auto st = json2pb::JsonToProtoMessage(attachment, req_pb, &error);
+  if (!st) {
+    cntl->SetFailed(error);
+    LOG(ERROR) << "parse json to proto failed: " << error;
+    return;
+  }
+
+  auto service_request = generate_request(req_pb, "/v1/completions");
+
+  if (!req_pb->prompt().empty()) {
+    service_request->prompt = req_pb->prompt();
+    // select instance for request
+    if (!scheduler_->schedule(service_request)) {
+      cntl->SetFailed("Schedule request failed!");
+      LOG(ERROR) << "Schedule request failed!";
+      return;
+    }
+  } else {
+    cntl->SetFailed("Prompt is empty!");
+    LOG(ERROR) << "Prompt is empty!";
+    return;
+  }
+
+  // update request protobuf
+  req_pb->set_service_request_id(service_request->service_request_id);
+  req_pb->mutable_token_ids()->Add(service_request->token_ids.begin(),
+                                   service_request->token_ids.end());
+  req_pb->mutable_routing()->set_prefill_name(
+      service_request->routing.prefill_name);
+  req_pb->mutable_routing()->set_decode_name(
+      service_request->routing.decode_name);
+
+  std::string req_attachment;
+  if (!json2pb::ProtoMessageToJson(*req_pb, &req_attachment)) {
+    cntl->SetFailed("proto to json failed");
+    LOG(ERROR) << "proto to json failed";
+    return;
+  }
+
+  auto call_data = std::make_shared<CompletionCallData>(
+      cntl, service_request->stream, done_guard.release(), resp_pb);
+  handle(call_data, req_attachment, service_request, "/v1/completions");
 }
 
 void XllmHttpServiceImpl::ChatCompletions(
@@ -496,7 +400,69 @@ void XllmHttpServiceImpl::ChatCompletions(
     const proto::HttpRequest* request,
     proto::HttpResponse* response,
     ::google::protobuf::Closure* done) {
-  post_serving("/v1/chat/completions", controller, request, response, done);
+  assert(initialized_);
+  ClosureGuard done_guard(done);
+  auto cntl = reinterpret_cast<brpc::Controller*>(controller);
+
+  if (!request || !response || !controller) {
+    LOG(ERROR) << "brpc request | respose | controller is null";
+    cntl->SetFailed("brpc request | respose | controller is null");
+    return;
+  }
+
+  auto arena = response->GetArena();
+  auto req_pb =
+      google::protobuf::Arena::CreateMessage<llm::proto::ChatRequest>(arena);
+  auto resp_pb =
+      google::protobuf::Arena::CreateMessage<llm::proto::ChatResponse>(arena);
+
+  std::string attachment = std::move(cntl->request_attachment().to_string());
+  std::string error;
+  auto st = json2pb::JsonToProtoMessage(attachment, req_pb, &error);
+  if (!st) {
+    cntl->SetFailed(error);
+    LOG(ERROR) << "parse json to proto failed: " << error;
+    return;
+  }
+
+  auto service_request = generate_request(req_pb, "/v1/chat/completions");
+
+  if (req_pb->messages_size() > 0) {
+    service_request->messages.reserve(req_pb->messages_size());
+    for (const auto& message : req_pb->messages()) {
+      service_request->messages.emplace_back(message.role(), message.content());
+    }
+
+    if (!scheduler_->schedule(service_request)) {
+      cntl->SetFailed("Schedule request failed!");
+      LOG(ERROR) << "Schedule request failed!";
+      return;
+    }
+  } else {
+    cntl->SetFailed("Messages is empty!");
+    LOG(ERROR) << "Messages is empty!";
+    return;
+  }
+
+  // update request protobuf
+  req_pb->set_service_request_id(service_request->service_request_id);
+  req_pb->mutable_token_ids()->Add(service_request->token_ids.begin(),
+                                   service_request->token_ids.end());
+  req_pb->mutable_routing()->set_prefill_name(
+      service_request->routing.prefill_name);
+  req_pb->mutable_routing()->set_decode_name(
+      service_request->routing.decode_name);
+
+  std::string req_attachment;
+  if (!json2pb::ProtoMessageToJson(*req_pb, &req_attachment)) {
+    cntl->SetFailed("proto to json failed");
+    LOG(ERROR) << "proto to json failed";
+    return;
+  }
+
+  auto call_data = std::make_shared<ChatCallData>(
+      cntl, service_request->stream, done_guard.release(), resp_pb);
+  handle(call_data, req_attachment, service_request, "/v1/chat/completions");
 }
 
 void XllmHttpServiceImpl::Embeddings(
@@ -504,7 +470,18 @@ void XllmHttpServiceImpl::Embeddings(
     const proto::HttpRequest* request,
     proto::HttpResponse* response,
     ::google::protobuf::Closure* done) {
-  post_serving("/v1/embeddings", controller, request, response, done);
+  assert(initialized_);
+  ClosureGuard done_guard(done);
+  auto cntl = reinterpret_cast<brpc::Controller*>(controller);
+
+  if (!request || !response || !controller) {
+    LOG(ERROR) << "brpc request | respose | controller is null";
+    cntl->SetFailed("brpc request | respose | controller is null");
+    return;
+  }
+
+  cntl->SetFailed("not support Embeddings");
+  return;
 }
 
 void XllmHttpServiceImpl::Models(::google::protobuf::RpcController* controller,

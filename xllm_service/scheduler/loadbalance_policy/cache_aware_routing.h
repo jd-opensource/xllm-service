@@ -28,7 +28,7 @@ class CacheAwareRouting final : public LoadBalancePolicy {
 
   virtual ~CacheAwareRouting() = default;
 
-  bool select_instances_pair(ScheduleResult* res) override;
+  bool select_instances_pair(std::shared_ptr<Request> request) override;
 
  protected:
   DISALLOW_COPY_AND_ASSIGN(CacheAwareRouting);

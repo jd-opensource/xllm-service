@@ -50,11 +50,6 @@ struct Routing {
   std::string debug_string() const { return serialize_to_json().dump(2); }
 };
 
-struct ScheduleResult {
-  std::vector<int32_t> token_ids;
-  Routing routing;
-};
-
 enum class ErrorCode : int32_t {
   OK = 0,
   INTERNAL_ERROR = 1,

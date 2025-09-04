@@ -4,7 +4,7 @@ include(cc_test)
 
 cc_library(
   NAME
-  loadbalance_policy
+    loadbalance_policy
   HDRS
     loadbalance_policy.h
     round_robin.h
@@ -13,6 +13,7 @@ cc_library(
     round_robin.cpp
     cache_aware_routing.cpp
   DEPS
+    :chat_template
     :common
     :managers
 )

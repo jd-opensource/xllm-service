@@ -4,6 +4,7 @@ include(cc_test)
 
 add_subdirectory(proto)
 add_subdirectory(common)
+add_subdirectory(request)
 add_subdirectory(rpc_service)
 add_subdirectory(tokenizer)
 add_subdirectory(chat_template)

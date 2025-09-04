@@ -28,7 +28,7 @@ class RoundRobin final : public LoadBalancePolicy {
 
   virtual ~RoundRobin() = default;
 
-  bool select_instances_pair(ScheduleResult* res) override;
+  bool select_instances_pair(std::shared_ptr<Request> request) override;
 
  protected:
   DISALLOW_COPY_AND_ASSIGN(RoundRobin);
