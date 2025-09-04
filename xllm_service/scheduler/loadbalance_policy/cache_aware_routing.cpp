@@ -19,10 +19,12 @@ namespace xllm_service {
 
 constexpr float MIN_SCORE = -2.0;
 
-bool CacheAwareRouting::select_instances_pair(ScheduleResult* res) {
+bool CacheAwareRouting::select_instances_pair(
+    std::shared_ptr<Request> request) {
   LoadBalanceInfos lb_infos;
-  if (!res->token_ids.empty()) {
-    Slice<int32_t> token_ids(res->token_ids.data(), res->token_ids.size());
+  if (!request->token_ids.empty()) {
+    Slice<int32_t> token_ids(request->token_ids.data(),
+                             request->token_ids.size());
     global_kvcache_mgr_->match(token_ids, &lb_infos.overlap_scores);
     DLOG(INFO) << lb_infos.debug_string();
   }
@@ -40,7 +42,7 @@ bool CacheAwareRouting::select_instances_pair(ScheduleResult* res) {
                 lb_infos.overlap_scores.max_block_num,
                 lb_infos.prefill_load_metrics,
                 lb_infos.prefill_max_waiting_requests_num,
-                &res->routing.prefill_name);
+                &request->routing.prefill_name);
 
   // find decode
   if (lb_infos.decode_load_metrics.size()) {
@@ -48,7 +50,7 @@ bool CacheAwareRouting::select_instances_pair(ScheduleResult* res) {
                   lb_infos.overlap_scores.max_block_num,
                   lb_infos.decode_load_metrics,
                   lb_infos.decode_max_waiting_requests_num,
-                  &res->routing.decode_name);
+                  &request->routing.decode_name);
   }
 
   return true;

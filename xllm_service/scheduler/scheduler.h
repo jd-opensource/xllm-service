@@ -24,6 +24,7 @@ limitations under the License.
 #include "loadbalance_policy/loadbalance_policy.h"
 #include "managers/global_kvcache_mgr.h"
 #include "managers/instance_mgr.h"
+#include "request/request.h"
 #include "response_handler.h"
 #include "tokenizer/tokenizer.h"
 #include "tokenizer/tokenizer_args.h"
@@ -36,9 +37,7 @@ class Scheduler final {
   Scheduler(const Options& options);
   ~Scheduler();
 
-  bool schedule(const ChatMessages& messages, ScheduleResult* res);
-
-  bool schedule(const std::string& prompt, ScheduleResult* res);
+  bool schedule(std::shared_ptr<Request> request);
 
   std::shared_ptr<brpc::Channel> get_channel(const std::string& target_name);
 
@@ -55,15 +54,9 @@ class Scheduler final {
   // keep http callback util request finished.
   // `handle_generation` will handle response with these callbacks.
   bool record_new_request(std::shared_ptr<ChatCallData> call_data,
-                          const std::string& service_request_id,
-                          bool stream,
-                          const std::string& model,
-                          bool include_usage);
+                          std::shared_ptr<Request> request);
   bool record_new_request(std::shared_ptr<CompletionCallData> call_data,
-                          const std::string& service_request_id,
-                          bool stream,
-                          const std::string& model,
-                          bool include_usage);
+                          std::shared_ptr<Request> request);
   void finish_request(const std::string& service_request_id);
 
   // handle generations from prefill/decode instance
@@ -103,9 +96,9 @@ class Scheduler final {
 
   std::unique_ptr<std::thread> heartbeat_thread_;
 
-  // `request` -> `callback` map
-  std::unordered_map<std::string, OutputCallback> callbacks_;
-  std::mutex callback_mutex_;
+  // `service request id` -> `request` map
+  std::unordered_map<std::string, std::shared_ptr<Request>> requests_;
+  std::mutex request_mutex_;
 
   // use threadpool to handle all RequestOuputs queue
   static constexpr size_t kOutputTheadNum_ = 128;  // magic num

@@ -26,6 +26,7 @@ limitations under the License.
 #include "common/threadpool.h"
 #include "common/types.h"
 #include "completion.pb.h"
+#include "request/request.h"
 #include "request_tracer.h"
 #include "xllm_http_service.pb.h"
 
@@ -33,6 +34,7 @@ namespace xllm_service {
 
 class Scheduler;
 class InstanceMgr;
+class ClosureGuard;
 
 class XllmHttpServiceImpl : public proto::XllmHttpService {
  public:
@@ -70,39 +72,15 @@ class XllmHttpServiceImpl : public proto::XllmHttpService {
                ::google::protobuf::Closure* done) override;
 
  private:
-  bool create_channel(const std::string& target_uri);
-
-  void post_serving(const std::string& serving_method,
-                    ::google::protobuf::RpcController* controller,
-                    const proto::HttpRequest* request,
-                    proto::HttpResponse* response,
-                    ::google::protobuf::Closure* done);
+  template <typename T>
+  std::shared_ptr<Request> generate_request(T* req_pb,
+                                            const std::string& method);
 
   template <typename T>
   void handle(std::shared_ptr<T> call_data,
               const std::string& req_attachment,
-              const std::string& service_request_id,
-              bool stream,
-              const std::string& model,
-              bool include_usage,
-              const std::string& target_uri,
+              std::shared_ptr<Request> request,
               const std::string& method);
-
-  void handle_v1_chat_completions(std::shared_ptr<ChatCallData> call_data,
-                                  const std::string& req_attachment,
-                                  const std::string& service_request_id,
-                                  bool stream,
-                                  const std::string& model,
-                                  bool include_usage,
-                                  const std::string& target_uri);
-
-  void handle_v1_completions(std::shared_ptr<CompletionCallData> call_data,
-                             const std::string& req_attachment,
-                             const std::string& service_request_id,
-                             bool stream,
-                             const std::string& model,
-                             bool include_usage,
-                             const std::string& target_uri);
 
   void get_serving(const std::string& serving_method,
                    ::google::protobuf::RpcController* controller,

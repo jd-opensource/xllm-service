@@ -19,6 +19,7 @@ cc_library(
     :etcd_client
     :loadbalance_policy
     :managers
+    :request
     cpprest
     etcd-cpp-api
     glog::glog

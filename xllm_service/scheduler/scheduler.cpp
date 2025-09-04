@@ -65,30 +65,32 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
 
 Scheduler::~Scheduler() { etcd_client_->stop_watch(); }
 
-bool Scheduler::schedule(const ChatMessages& messages, ScheduleResult* res) {
-  if (chat_template_ == nullptr) {
-    LOG(ERROR) << "Chat template has not configured.";
-    return false;
+bool Scheduler::schedule(std::shared_ptr<Request> request) {
+  // apply chat template
+  if (request->messages.size() > 0) {
+    if (chat_template_ == nullptr) {
+      LOG(ERROR) << "Chat template has not configured.";
+      return false;
+    }
+
+    auto prompt = chat_template_->apply(request->messages);
+    if (!prompt.has_value()) {
+      LOG(ERROR) << "Failed to construct prompt from messages";
+      return false;
+    }
+    request->prompt = prompt.value();
   }
 
-  auto prompt = chat_template_->apply(messages);
-  if (!prompt.has_value()) {
-    LOG(ERROR) << "Failed to construct prompt from messages";
-    return false;
-  }
-
-  return schedule(prompt.value(), res);
-}
-
-bool Scheduler::schedule(const std::string& prompt, ScheduleResult* res) {
-  if (prompt.size() != 0) {
-    if (!get_tls_tokenizer()->encode(prompt, &res->token_ids)) {
-      LOG(ERROR) << "Encode prompt faill: " << prompt;
+  // encode prompt
+  if (request->prompt.size() != 0) {
+    if (!get_tls_tokenizer()->encode(request->prompt, &request->token_ids)) {
+      LOG(ERROR) << "Encode prompt failed: " << request->prompt;
       return false;
     }
   }
-  auto ret = lb_policy_->select_instances_pair(res);
-  DLOG(INFO) << res->routing.debug_string();
+
+  auto ret = lb_policy_->select_instances_pair(request);
+  DLOG(INFO) << request->routing.debug_string();
 
   return ret;
 }
@@ -151,26 +153,23 @@ Tokenizer* Scheduler::get_tls_tokenizer() {
 }
 
 bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
-                                   const std::string& service_request_id,
-                                   bool stream,
-                                   const std::string& model,
-                                   bool include_usage) {
+                                   std::shared_ptr<Request> request) {
   {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    if (callbacks_.find(service_request_id) != callbacks_.end()) {
+    std::lock_guard<std::mutex> guard(request_mutex_);
+    if (requests_.find(request->service_request_id) != requests_.end()) {
       LOG(ERROR) << "The request ID already exists. Requests with the same ID "
                     "are not allowed. "
-                 << service_request_id;
+                 << request->service_request_id;
       return false;
     }
-    callbacks_[service_request_id] =
+    request->output_callback =
         [this,
          call_data,
-         model,
-         stream,
-         include_usage,
+         model = request->model,
+         stream = request->stream,
+         include_usage = request->include_usage,
          first_message_sent = std::unordered_set<size_t>(),
-         service_request_id,
+         service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(absl::Now())](
             const llm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
@@ -193,12 +192,14 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
       return response_handler_.send_result_to_client(
           call_data, service_request_id, created_time, model, req_output);
     };
+    requests_[request->service_request_id] = request;
   }
 
   {
     // allocate thread for the request
     std::lock_guard<std::mutex> guard(thread_map_mutex_);
-    remote_requests_output_thread_map_[service_request_id] = next_thread_idx;
+    remote_requests_output_thread_map_[request->service_request_id] =
+        next_thread_idx;
     next_thread_idx = (++next_thread_idx) % kOutputTheadNum_;
   }
 
@@ -207,25 +208,22 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
 
 bool Scheduler::record_new_request(
     std::shared_ptr<CompletionCallData> call_data,
-    const std::string& service_request_id,
-    bool stream,
-    const std::string& model,
-    bool include_usage) {
+    std::shared_ptr<Request> request) {
   {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    if (callbacks_.find(service_request_id) != callbacks_.end()) {
+    std::lock_guard<std::mutex> guard(request_mutex_);
+    if (requests_.find(request->service_request_id) != requests_.end()) {
       LOG(ERROR) << "The request ID already exists. Requests with the same ID "
                     "are not allowed. "
-                 << service_request_id;
+                 << request->service_request_id;
       return false;
     }
-    callbacks_[service_request_id] =
+    request->output_callback =
         [this,
          call_data,
-         model,
-         stream,
-         include_usage,
-         service_request_id,
+         model = request->model,
+         stream = request->stream,
+         include_usage = request->include_usage,
+         service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(absl::Now())](
             const llm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
@@ -247,12 +245,14 @@ bool Scheduler::record_new_request(
       return response_handler_.send_result_to_client(
           call_data, service_request_id, created_time, model, req_output);
     };
+    requests_[request->service_request_id] = request;
   }
 
   {
     // allocate thread for the request
     std::lock_guard<std::mutex> guard(thread_map_mutex_);
-    remote_requests_output_thread_map_[service_request_id] = next_thread_idx;
+    remote_requests_output_thread_map_[request->service_request_id] =
+        next_thread_idx;
     next_thread_idx = (++next_thread_idx) % kOutputTheadNum_;
   }
 
@@ -261,8 +261,8 @@ bool Scheduler::record_new_request(
 
 void Scheduler::finish_request(const std::string& service_request_id) {
   {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    callbacks_.erase(service_request_id);
+    std::lock_guard<std::mutex> guard(request_mutex_);
+    requests_.erase(service_request_id);
   }
 
   {
@@ -275,15 +275,15 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
   const std::string& service_request_id = request_output.service_request_id;
   OutputCallback cb;
   {
-    std::lock_guard<std::mutex> guard(callback_mutex_);
-    auto it = callbacks_.find(service_request_id);
-    if (it == callbacks_.end()) {
+    std::lock_guard<std::mutex> guard(request_mutex_);
+    auto it = requests_.find(service_request_id);
+    if (it == requests_.end()) {
       LOG(ERROR) << "Can not found the callback for the received request "
                     "output, request id is: "
                  << service_request_id;
       return false;
     }
-    cb = it->second;
+    cb = it->second->output_callback;
   }
 
   size_t req_thread_idx = -1;
