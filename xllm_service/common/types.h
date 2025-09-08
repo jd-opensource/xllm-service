@@ -139,6 +139,8 @@ struct InstanceMetaInfo {
   std::vector<uint64_t> k_cache_ids;
   std::vector<uint64_t> v_cache_ids;
   int32_t dp_size;
+  // ttft profiling data
+  std::vector<std::pair<int32_t, int64_t>> ttft_profiling_data;
 
   // latest heatbeat timestamp
   uint64_t latest_timestamp = 0;
@@ -155,6 +157,7 @@ struct InstanceMetaInfo {
     json_val["k_cache_ids"] = k_cache_ids;
     json_val["v_cache_ids"] = v_cache_ids;
     json_val["dp_size"] = dp_size;
+    json_val["ttft_profiling_data"] = ttft_profiling_data;
     return json_val;
   }
 
@@ -188,6 +191,12 @@ struct InstanceMetaInfo {
       }
 
       dp_size = json_value.at("dp_size").get<int32_t>();
+
+      for (const auto& item : json_value.at("ttft_profiling_data")) {
+        if (item.is_array() && item.size() == 2) {
+          ttft_profiling_data.emplace_back(item[0], item[1]);
+        }
+      }
 
       set_init_timestamp();
     } catch (const std::exception& e) {
