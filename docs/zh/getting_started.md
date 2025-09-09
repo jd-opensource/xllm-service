@@ -28,6 +28,12 @@ export VCPKG_ROOT=/your/path/to/vcpkg
 mv /tmp/etcd-download-test/etcd /path/to/your/etcd
 ```
 
+### 添加补丁
+etcd_cpp_apiv3 依赖 cpprest 静态库，但 cpprest 编译产生的是动态库，因此需要给 cpprest 的 CMakeLists.txt 加一个补丁：
+```bash
+bash prepare.sh
+```
+
 ### xLLM Service编译
 再执行编译:
 ```bash
