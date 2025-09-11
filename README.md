@@ -66,23 +66,19 @@ With management of computing resource pools, intelligent scheduling and preempti
 
 ## 4. Quick Start
 #### Installation
-```
+```bash
 git clone git@coding.jd.com:xllm-ai/xllm_service.git
 cd xllm_service
 git submodule init
 git submodule update
 ```
 #### Compilation
-compile vcpkg, set env variable:
-```
-export VCPKG_ROOT=/export/home/xxx/vcpkg-src
-```
 compile xllm-service: 
-```
+```bash
+sh prepare.sh # apply patch
 mkdir -p build && cd build
 cmake .. && make -j 8
 ```
-
 
 --- 
 
@@ -114,7 +110,8 @@ If you encounter any issues along the way, you are welcomed to submit reproducib
 Welcome to contact us:
 
 <div align="center">
-  <img src="" alt="contact" width="50%" height="50%">
+  <img src="docs/assets/wechat_qrcode1.png" alt="qrcode1" width="30%" />
+  <img src="docs/assets/wechat_qrcode2.png" alt="qrcode2" width="30%" />
 </div>
 
 ---
