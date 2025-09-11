@@ -28,6 +28,12 @@ Use the installation script provided by etcd official:
 mv /tmp/etcd-download-test/etcd /path/to/your/etcd
 ```
 
+### Adding a Patch
+`etcd_cpp_apiv3` depends on the cpprest static library, but cpprest is built as a dynamic library by default. Therefore, you need to add a patch to the CMakeLists.txt of cpprest:
+```bash
+bash prepare.sh
+```
+
 ### xLLM Service Compilation
 ```bash
 mkdir -p build
