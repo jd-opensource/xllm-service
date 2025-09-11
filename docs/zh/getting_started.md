@@ -17,10 +17,6 @@ cd xllm_service
 git submodule init
 git submodule update
 ```
-`xllm_service`编译运行依赖[vcpkg](https://github.com/microsoft/vcpkg)和[etcd](https://github.com/etcd-io/etcd)。
-```bash
-export VCPKG_ROOT=/your/path/to/vcpkg
-```
 
 ### etcd安装
 使用etcd官方提供的[安装脚本](https://github.com/etcd-io/etcd/releases)进行安装，其脚本提供的默认安装路径是`/tmp/etcd-download-test/etcd`，我们可以手动修改其脚本中的安装路径，也可以运行完脚本之后手动迁移：
@@ -65,7 +61,8 @@ ENABLE_XLLM_DEBUG_LOG=1 \
 ./build/xllm_service/xllm_master_serving \
     --etcd_addr="127.0.0.1:2389" \
     --http_server_port=9888 \
-    --rpc_server_port=9889
+    --rpc_server_port=9889 \
+    --tokenizer_path /path/to/tokenizer_config/
 ```
 
 xllm-service需要启动一个http服务和一个rpc服务，http服务用于对外接收与处理用户请求，rpc服务用于和xllm实例进行交互。

@@ -58,19 +58,16 @@ xLLM-service 通过对计算资源池的动态管理、请求的智能调度与�
 
 ## 4. 快速开始
 #### 安装
-```
+```bash
 git clone git@coding.jd.com:xllm-ai/xllm_service.git
 cd xllm_service
 git submodule init
 git submodule update
 ```
 #### 编译
-编译依赖vcpkg, 设置环境变量
-```
-export VCPKG_ROOT=/export/home/xxx/vcpkg-src
-```
 编译执行
-```
+```bash
+sh prepare.sh # 应用patch
 mkdir -p build && cd build
 cmake .. && make -j 8
 ```
@@ -104,10 +101,9 @@ cmake .. && make -j 8
 欢迎沟通和联系我们:
 
 <div align="center">
-  <img src="xxx" alt="contact" width="50%" height="50%">
+  <img src="docs/assets/wechat_qrcode1.png" alt="qrcode1" width="30%" />
+  <img src="docs/assets/wechat_qrcode2.png" alt="qrcode2" width="30%" />
 </div>
-
----
 
 ## 7. 致谢
 

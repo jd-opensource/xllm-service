@@ -17,10 +17,6 @@ cd xllm_service
 git submodule init
 git submodule update
 ```
-`xllm_service` compilation and execution depend on [vcpkg](https://github.com/microsoft/vcpkg) and [etcd](https://github.com/etcd-io/etcd).
-```bash
-export VCPKG_ROOT=/your/path/to/vcpkg
-```
 
 ### etcd Installation
 Use the installation script provided by etcd official:
@@ -64,7 +60,8 @@ ENABLE_XLLM_DEBUG_LOG=1 \
 ./build/xllm_service/xllm_master_serving \
     --etcd_addr="127.0.0.1:2389" \
     --http_server_port=9888 \
-    --rpc_server_port=9889
+    --rpc_server_port=9889 \
+    --tokenizer_path /path/to/tokenizer_config/
 ```
 
 xllm-service needs to start an http service and an rpc service. The http service is used to receive and process user requests, and the rpc service is used to interact with xllm instances.
