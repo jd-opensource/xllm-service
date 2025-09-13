@@ -43,6 +43,14 @@
       "version>=": "1.84.0"
     },
     {
+      "name": "boost-locale",
+      "version>=": "1.84.0"
+    },
+    {
+      "name": "boost-interprocess",
+      "version>=": "1.84.0"
+    },
+    {
       "name": "eigen3",
       "version>=": "3.4.0"
     },
