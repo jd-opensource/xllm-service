@@ -57,10 +57,15 @@ class Scheduler final {
                           std::shared_ptr<Request> request);
   bool record_new_request(std::shared_ptr<CompletionCallData> call_data,
                           std::shared_ptr<Request> request);
-  void finish_request(const std::string& service_request_id);
+  void finish_request(const std::string& service_request_id,
+                      bool error = false);
 
   // handle generations from prefill/decode instance
   bool handle_generation(const llm::RequestOutput& request_output);
+
+  // update request metrics for prefill finished request
+  void update_request_metrics_for_prefill(
+      const std::string& service_request_id);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Scheduler);

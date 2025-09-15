@@ -47,8 +47,7 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
     lb_policy_ =
         std::make_unique<CacheAwareRouting>(instance_mgr_, global_kvcache_mgr_);
   } else {
-    lb_policy_ =
-        std::make_unique<RoundRobin>(instance_mgr_, global_kvcache_mgr_);
+    lb_policy_ = std::make_unique<RoundRobin>(instance_mgr_);
   }
 
   if (is_master_service_) {
@@ -92,6 +91,11 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
   auto ret = lb_policy_->select_instances_pair(request);
   DLOG(INFO) << request->routing.debug_string();
 
+  // update request metrics
+  if (request->prompt.size() != 0) {
+    instance_mgr_->update_request_metrics(request, RequestAction::SCHEDULE);
+  }
+
   return ret;
 }
 
@@ -116,6 +120,7 @@ void Scheduler::handle_instance_heartbeat(const proto::HeartbeatRequest* req) {
   }
   global_kvcache_mgr_->record_updated_kvcaches(req->name(), req->cache_event());
   instance_mgr_->record_load_metrics_update(req->name(), req->load_metrics());
+  instance_mgr_->update_latency_metrics(req->name(), req->latency_metrics());
 }
 
 void Scheduler::handle_master_service_watch(const etcd::Response& response,
@@ -259,10 +264,23 @@ bool Scheduler::record_new_request(
   return true;
 }
 
-void Scheduler::finish_request(const std::string& service_request_id) {
+void Scheduler::finish_request(const std::string& service_request_id,
+                               bool error) {
   {
     std::lock_guard<std::mutex> guard(request_mutex_);
-    requests_.erase(service_request_id);
+    auto it = requests_.find(service_request_id);
+    if (it != requests_.end()) {
+      // update instance request metrics for finished request
+      if (error) {
+        instance_mgr_->update_request_metrics(it->second,
+                                              RequestAction::CANCEL);
+      } else {
+        instance_mgr_->update_request_metrics(it->second,
+                                              RequestAction::FINISH_DECODE);
+      }
+
+      requests_.erase(it);
+    }
   }
 
   {
@@ -310,6 +328,17 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
       });
 
   return true;
+}
+
+void Scheduler::update_request_metrics_for_prefill(
+    const std::string& service_request_id) {
+  std::lock_guard<std::mutex> guard(request_mutex_);
+  auto it = requests_.find(service_request_id);
+  if (it != requests_.end()) {
+    // update instance request metrics for prefill finished request
+    instance_mgr_->update_request_metrics(it->second,
+                                          RequestAction::FINISH_PREFILL);
+  }
 }
 
 }  // namespace xllm_service

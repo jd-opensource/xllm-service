@@ -66,10 +66,15 @@ void InstanceMgr::init() {
     for (auto& it : ETCD_KEYS_PREFIX_MAP) {
       etcd_client_->get_prefix(it.second, &instances_);
     }
-    // create ttft predictor for each instance
-    for (auto& pair : instances_) {
-      ttft_predictors_.insert_or_assign(
-          pair.first, TtftPredictor(pair.second.ttft_profiling_data));
+    // create ttft predictor and request metrics for each instance
+    {
+      std::lock_guard<std::mutex> ttft_predictor_lock(ttft_predictor_mutex_);
+      std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+      for (auto& pair : instances_) {
+        ttft_predictors_.insert_or_assign(
+            pair.first, TtftPredictor(pair.second.ttft_profiling_data));
+        request_metrics_.insert_or_assign(pair.first, RequestMetrics());
+      }
     }
     LOG(INFO) << "Load instance info from etcd:" << instances_.size();
     std::vector<std::string> channel_creat_fail_insts;
@@ -99,7 +104,13 @@ void InstanceMgr::init() {
     }
     for (auto& name : channel_creat_fail_insts) {
       instances_.erase(name);
-      ttft_predictors_.erase(name);
+      {
+        std::lock_guard<std::mutex> ttft_predictor_lock(ttft_predictor_mutex_);
+        std::lock_guard<std::mutex> request_metrics_lock(
+            request_metrics_mutex_);
+        ttft_predictors_.erase(name);
+        request_metrics_.erase(name);
+      }
     }
   }
   {
@@ -340,9 +351,18 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
           continue;
         }
 
-        // create ttft predictor for instance
-        ttft_predictors_.emplace(
-            iter.first, TtftPredictor(iter.second.ttft_profiling_data));
+        {
+          std::lock_guard<std::mutex> ttft_predictor_lock(
+              ttft_predictor_mutex_);
+          std::lock_guard<std::mutex> request_metrics_lock(
+              request_metrics_mutex_);
+          // create ttft predictor for instance
+          ttft_predictors_.emplace(
+              iter.first, TtftPredictor(iter.second.ttft_profiling_data));
+
+          // create request metrics for instance
+          request_metrics_.emplace(iter.first, RequestMetrics());
+        }
 
         instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
 
@@ -395,8 +415,15 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
         }
 
         instances_.erase(iter);
-        ttft_predictors_.erase(iter);
         cached_channels_.erase(iter);
+        {
+          std::lock_guard<std::mutex> ttft_predictor_lock(
+              ttft_predictor_mutex_);
+          std::lock_guard<std::mutex> request_metrics_lock(
+              request_metrics_mutex_);
+          ttft_predictors_.erase(iter);
+          request_metrics_.erase(iter);
+        }
         {
           std::lock_guard<std::mutex> lock(update_mutex_);
           updated_metrics_.erase(iter);
@@ -448,6 +475,76 @@ void InstanceMgr::update_load_metrics(const etcd::Response& response,
       }
     }
   });
+}
+
+void InstanceMgr::update_latency_metrics(
+    const std::string& instance_name,
+    const proto::LatencyMetrics& latency_metrics) {
+  std::lock_guard<std::mutex> lock(latency_metrics_mutex_);
+
+  latency_metrics_.insert_or_assign(
+      instance_name,
+      LatencyMetrics(latency_metrics.recent_max_ttft(),
+                     latency_metrics.recent_max_tbt()));
+}
+
+void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
+                                         RequestAction action) {
+  std::lock_guard<std::mutex> lock(request_metrics_mutex_);
+
+  auto prefill_it = request_metrics_.find(request->routing.prefill_name);
+  if (prefill_it == request_metrics_.end()) {
+    LOG(ERROR) << "Failed to find instance request metrics, instance name : "
+               << request->routing.prefill_name;
+    return;
+  }
+
+  auto decode_it = request_metrics_.find(request->routing.decode_name);
+  if (decode_it == request_metrics_.end()) {
+    LOG(ERROR) << "Failed to find instance request metrics, instance name : "
+               << request->routing.decode_name;
+    return;
+  }
+
+  int64_t token_length = request->token_ids.size();
+  switch (action) {
+    case RequestAction::SCHEDULE:
+      // update the request metrics for prefill and decode instances when
+      // request is scheduled
+      prefill_it->second.prefill_request_num += 1;
+      prefill_it->second.prefill_token_num += token_length;
+      prefill_it->second.estimated_prefill_time += request->estimated_ttft;
+
+      decode_it->second.decode_request_num += 1;
+      decode_it->second.decode_token_num += token_length;
+      break;
+    case RequestAction::FINISH_PREFILL:
+      // only update the request metrics for prefill instance when request
+      // finishes the prefill phase
+      prefill_it->second.prefill_request_num -= 1;
+      prefill_it->second.prefill_token_num -= token_length;
+      prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
+      break;
+    case RequestAction::FINISH_DECODE:
+      // update the request metrics for decode instance when request finishes
+      // the decode phase
+      decode_it->second.decode_request_num -= 1;
+      decode_it->second.decode_token_num -= token_length;
+      break;
+    case RequestAction::CANCEL:
+      // update the request metrics for prefill and decode instances when
+      // request is cancelled
+      prefill_it->second.prefill_request_num -= 1;
+      prefill_it->second.prefill_token_num -= token_length;
+      prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
+
+      decode_it->second.decode_request_num -= 1;
+      decode_it->second.decode_token_num -= token_length;
+      break;
+    default:
+      LOG(ERROR) << "Unknown RequestAction: " << static_cast<int32_t>(action);
+      break;
+  }
 }
 
 }  // namespace xllm_service

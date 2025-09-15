@@ -22,15 +22,14 @@ namespace xllm_service {
 
 class RoundRobin final : public LoadBalancePolicy {
  public:
-  RoundRobin(std::shared_ptr<InstanceMgr> instance_mgr,
-             std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr)
-      : LoadBalancePolicy(instance_mgr, global_kvcache_mgr) {};
+  RoundRobin(std::shared_ptr<InstanceMgr> instance_mgr)
+      : LoadBalancePolicy(instance_mgr) {};
 
   virtual ~RoundRobin() = default;
 
   bool select_instances_pair(std::shared_ptr<Request> request) override;
 
- protected:
+ private:
   DISALLOW_COPY_AND_ASSIGN(RoundRobin);
 };
 

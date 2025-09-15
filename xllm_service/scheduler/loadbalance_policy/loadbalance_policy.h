@@ -15,18 +15,16 @@ limitations under the License.
 
 #pragma once
 
-#include "../managers/global_kvcache_mgr.h"
-#include "../managers/instance_mgr.h"
 #include "common/types.h"
 #include "request/request.h"
+#include "scheduler/managers/instance_mgr.h"
 
 namespace xllm_service {
 
 class LoadBalancePolicy {
  public:
-  LoadBalancePolicy(std::shared_ptr<InstanceMgr> instance_mgr,
-                    std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr)
-      : instance_mgr_(instance_mgr), global_kvcache_mgr_(global_kvcache_mgr) {}
+  LoadBalancePolicy(std::shared_ptr<InstanceMgr> instance_mgr)
+      : instance_mgr_(instance_mgr) {}
 
   virtual ~LoadBalancePolicy() = default;
 
@@ -34,8 +32,6 @@ class LoadBalancePolicy {
 
  protected:
   std::shared_ptr<InstanceMgr> instance_mgr_;
-
-  std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr_;
 };
 
 }  // namespace xllm_service

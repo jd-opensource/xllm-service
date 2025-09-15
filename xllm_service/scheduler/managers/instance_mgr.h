@@ -27,6 +27,7 @@ limitations under the License.
 #include "common/threadpool.h"
 #include "common/ttft_predictor.h"
 #include "common/types.h"
+#include "request/request.h"
 #include "scheduler/etcd_client/etcd_client.h"
 #include "xllm_rpc_service.pb.h"
 
@@ -55,6 +56,14 @@ class InstanceMgr final {
                                   const proto::LoadMetrics& load_metrics);
   bool upload_load_metrics();
 
+  // update the recent token latency metrics for the corresponding instance
+  void update_latency_metrics(const std::string& instance_name,
+                              const proto::LatencyMetrics& latency_metrics);
+
+  // update request metrics under different actions
+  void update_request_metrics(std::shared_ptr<Request> request,
+                              RequestAction action);
+
   void set_as_master();
 
  private:
@@ -81,7 +90,6 @@ class InstanceMgr final {
 
   std::shared_mutex inst_mutex_;
   std::unordered_map<std::string, InstanceMetaInfo> instances_;
-  std::unordered_map<std::string, TtftPredictor> ttft_predictors_;
   std::vector<std::string> prefill_index_;
   std::vector<std::string> decode_index_;
   uint64_t next_prefill_index_ = 0;
@@ -95,6 +103,21 @@ class InstanceMgr final {
   std::mutex update_mutex_;
   std::unordered_map<std::string, LoadMetrics> updated_metrics_;
   std::unordered_set<std::string> removed_instance_;
+
+  // "instance name" -> "TtftPredictor" map
+  std::mutex ttft_predictor_mutex_;
+  std::unordered_map<std::string, TtftPredictor> ttft_predictors_;
+
+  // Record the latest token latency metrics for each instance, including TTFT
+  // and TBT.
+  std::mutex latency_metrics_mutex_;
+  std::unordered_map<std::string, LatencyMetrics> latency_metrics_;
+
+  // Record the request metrics for each instance, including prefill token
+  // count, prefill request count, estimated prefill execution time, decode
+  // token count, and decode request count.
+  std::mutex request_metrics_mutex_;
+  std::unordered_map<std::string, RequestMetrics> request_metrics_;
 
   ThreadPool threadpool_;
 };
