@@ -46,6 +46,9 @@ class Scheduler final {
   std::vector<std::string> get_static_decode_list(
       const std::string& instance_name);
 
+  std::vector<std::string> get_static_prefill_list(
+      const std::string& instance_name);
+
   void handle_instance_heartbeat(const proto::HeartbeatRequest* req);
 
   void exited() { exited_ = true; }

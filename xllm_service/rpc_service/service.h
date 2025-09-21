@@ -52,6 +52,9 @@ class XllmRpcServiceImpl final {
   std::vector<std::string> get_static_decode_list(
       const std::string& prefill_name);
 
+  std::vector<std::string> get_static_prefill_list(
+      const std::string& decode_name);
+
  public:
   // handle generations from prefill/decode instance
   bool handle_generation(const llm::RequestOutput& request_output);
@@ -102,6 +105,11 @@ class XllmRpcService : public proto::XllmRpcService {
                                    const proto::InstanceID* req,
                                    proto::InstanceIDs* resp,
                                    google::protobuf::Closure* done) override;
+
+  virtual void GetStaticPrefillList(google::protobuf::RpcController* cntl_base,
+                                    const proto::InstanceID* req,
+                                    proto::InstanceIDs* resp,
+                                    google::protobuf::Closure* done) override;
 
   // xllm service receive response from decode instance directly in disagg pd
   // mode. This can eliminate the cost brought by forwarding through prefill.

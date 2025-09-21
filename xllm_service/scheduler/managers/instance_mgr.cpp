@@ -169,6 +169,21 @@ std::vector<std::string> InstanceMgr::get_static_decode_list(
   return decode_list;
 }
 
+// TODO: refactor later, currently return all prefill instances
+std::vector<std::string> InstanceMgr::get_static_prefill_list(
+    const std::string& instance_name) {
+  std::vector<std::string> prefill_list;
+  std::shared_lock<std::shared_mutex> lock(inst_mutex_);
+  for (auto& inst : instances_) {
+    if (inst.second.type == InstanceType::PREFILL ||
+        inst.second.type == InstanceType::DEFAULT) {
+      prefill_list.emplace_back(inst.second.name);
+    }
+  }
+
+  return prefill_list;
+}
+
 void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
   std::shared_lock<std::shared_mutex> inst_lock(inst_mutex_);
   std::shared_lock<std::shared_mutex> metric_lock(load_metric_mutex_);

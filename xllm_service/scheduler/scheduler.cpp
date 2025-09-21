@@ -152,6 +152,11 @@ std::vector<std::string> Scheduler::get_static_decode_list(
   return instance_mgr_->get_static_decode_list(instance_name);
 }
 
+std::vector<std::string> Scheduler::get_static_prefill_list(
+    const std::string& instance_name) {
+  return instance_mgr_->get_static_prefill_list(instance_name);
+}
+
 Tokenizer* Scheduler::get_tls_tokenizer() {
   thread_local std::unique_ptr<Tokenizer> tls_tokenizer(tokenizer_->clone());
   return tls_tokenizer.get();

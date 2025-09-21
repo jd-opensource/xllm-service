@@ -90,6 +90,8 @@ message CompletionRequest {
   repeated int32 token_ids = 26;
   
   Routing routing = 27;
+
+  optional bool offline = 28;
 }
 
 message LogProbs {

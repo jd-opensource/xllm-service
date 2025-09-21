@@ -35,6 +35,8 @@ struct Request {
   // whether to return usage
   bool include_usage = false;
 
+  bool offline = false;
+
   // input prompt
   std::string prompt;
 
