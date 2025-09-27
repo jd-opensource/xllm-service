@@ -47,6 +47,9 @@ struct Request {
   // instance routing
   Routing routing;
 
+  // the estimated TTFT obtained from the TTFT predictor
+  int64_t estimated_ttft = 0;
+
   // output callback
   OutputCallback output_callback;
 

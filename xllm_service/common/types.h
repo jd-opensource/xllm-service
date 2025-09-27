@@ -112,6 +112,43 @@ struct LoadMetrics {
   bool empty() const { return false; }
 };
 
+// Record the latency monitoring metrics of the instance over the recent period
+struct LatencyMetrics {
+  LatencyMetrics(const int64_t& recent_max_ttft, const int64_t& recent_max_tbt)
+      : recent_max_ttft(recent_max_ttft), recent_max_tbt(recent_max_tbt) {}
+
+  // The unit is milliseconds.
+  int64_t recent_max_ttft;
+  int64_t recent_max_tbt;
+};
+
+enum class RequestAction : int32_t {
+  SCHEDULE = 0,
+  FINISH_PREFILL = 1,
+  FINISH_DECODE = 2,
+  CANCEL = 3,
+};
+
+// Record the request metrics of the instance
+struct RequestMetrics {
+  RequestMetrics()
+      : prefill_request_num(0),
+        prefill_token_num(0),
+        decode_request_num(0),
+        decode_token_num(0),
+        estimated_prefill_time(0) {}
+
+  int64_t prefill_request_num;
+  int64_t prefill_token_num;
+
+  int64_t decode_request_num;
+  int64_t decode_token_num;
+
+  // Estimated execution time for all prefill requests on the instance.
+  // The unit is milliseconds.
+  int64_t estimated_prefill_time;
+};
+
 struct InstanceMetaInfo {
  public:
   InstanceMetaInfo() { set_init_timestamp(); }

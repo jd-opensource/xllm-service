@@ -92,7 +92,12 @@ void handle_non_stream_response(brpc::Controller* cntl,
 template <typename T>
 void handle_first_response(brpc::Controller* cntl,
                            std::shared_ptr<T> call_data,
+                           Scheduler* scheduler,
+                           std::string service_request_id,
                            bool stream) {
+  // update request metrics for prefill finished request
+  scheduler->update_request_metrics_for_prefill(service_request_id);
+
   std::unique_ptr<brpc::Controller> cntl_guard(cntl);
   if (cntl->Failed()) {
     LOG(WARNING) << "Fail to send stream generation, " << cntl->ErrorText();
@@ -150,7 +155,6 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
       LOG(ERROR) << "rpc service add new request error: "
                  << request->service_request_id;
       call_data->finish_with_error("Internal runtime error.");
-      scheduler_->finish_request(request->service_request_id);
       return;
     }
   }
@@ -177,14 +181,19 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
     // 1. tokens will be received via rpc channel.
     //
     if (enable_decode_response_to_service_) {
-      google::protobuf::Closure* done = brpc::NewCallback(
-          &handle_first_response<T>, redirect_cntl, call_data, request->stream);
+      google::protobuf::Closure* done =
+          brpc::NewCallback(&handle_first_response<T>,
+                            redirect_cntl,
+                            call_data,
+                            scheduler_,
+                            request->service_request_id,
+                            request->stream);
       channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
       if (redirect_cntl->Failed()) {
         LOG(ERROR) << "Redirect to instance error: "
                    << redirect_cntl->ErrorText();
         call_data->finish_with_error(redirect_cntl->ErrorText());
-        scheduler_->finish_request(request->service_request_id);
+        scheduler_->finish_request(request->service_request_id, /*error=*/true);
         delete done;
         delete redirect_cntl;
         return;
