@@ -49,6 +49,11 @@ std::vector<std::string> XllmRpcServiceImpl::get_static_decode_list(
   return scheduler_->get_static_decode_list(instance_name);
 }
 
+std::vector<std::string> XllmRpcServiceImpl::get_static_prefill_list(
+    const std::string& instance_name) {
+  return scheduler_->get_static_prefill_list(instance_name);
+}
+
 bool XllmRpcServiceImpl::handle_generation(
     const llm::RequestOutput& request_output) {
   return scheduler_->handle_generation(request_output);
@@ -123,6 +128,19 @@ void XllmRpcService::GetStaticDecodeList(
       xllm_rpc_service_impl_->get_static_decode_list(req->name());
   for (auto& d : decode_list) {
     *(resp->mutable_names()->Add()) = std::move(d);
+  }
+}
+
+void XllmRpcService::GetStaticPrefillList(
+    google::protobuf::RpcController* cntl_base,
+    const proto::InstanceID* req,
+    proto::InstanceIDs* resp,
+    google::protobuf::Closure* done) {
+  brpc::ClosureGuard done_guard(done);
+  std::vector<std::string> prefill_list =
+      xllm_rpc_service_impl_->get_static_prefill_list(req->name());
+  for (auto& p : prefill_list) {
+    *(resp->mutable_names()->Add()) = std::move(p);
   }
 }
 

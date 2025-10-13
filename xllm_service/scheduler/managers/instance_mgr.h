@@ -48,6 +48,9 @@ class InstanceMgr final {
   std::vector<std::string> get_static_decode_list(
       const std::string& instance_name);
 
+  std::vector<std::string> get_static_prefill_list(
+      const std::string& instance_name);
+
   void get_load_metrics(LoadBalanceInfos* infos);
 
   std::shared_ptr<brpc::Channel> get_channel(const std::string& instance_name);
