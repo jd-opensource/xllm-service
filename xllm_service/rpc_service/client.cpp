@@ -88,6 +88,8 @@ ErrorCode XllmRpcClient::register_instance(const InstanceMetaInfo& metainfo) {
     req.set_type(proto::InstanceType::PREFILL);
   } else if (metainfo.type == InstanceType::DECODE) {
     req.set_type(proto::InstanceType::DECODE);
+  } else if (metainfo.type == InstanceType::MIX) {
+    req.set_type(proto::InstanceType::MIX);
   } else {
     req.set_type(proto::InstanceType::DEFAULT);
   }

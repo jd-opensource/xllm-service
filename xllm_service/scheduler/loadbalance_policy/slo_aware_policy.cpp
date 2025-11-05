@@ -13,23 +13,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#pragma once
+#include "slo_aware_policy.h"
 
-#include <Eigen/Dense>
+#include "common/global_gflags.h"
 
 namespace xllm_service {
 
-// Predictor for predicting TTFT based on input length
-class TtftPredictor final {
- public:
-  TtftPredictor(
-      const std::vector<std::pair<int32_t, int64_t>>& ttft_profiling_data);
-  ~TtftPredictor() = default;
+SloAwarePolicy::SloAwarePolicy(const Options& options,
+                               std::shared_ptr<InstanceMgr> instance_mgr)
+    : options_(options), LoadBalancePolicy(instance_mgr) {}
 
-  int64_t predict_ttft(int32_t length);
+bool SloAwarePolicy::select_instances_pair(std::shared_ptr<Request> request) {
+  if (request->token_ids.empty()) {
+    return instance_mgr_->get_next_instance_pair(&request->routing);
+  }
 
- private:
-  Eigen::VectorXd coefficients_;
-};
+  // select instances pair based on slo
+  if (!instance_mgr_->select_instance_pair_on_slo(request)) {
+    LOG(ERROR) << "Select instances based on the SLO failed!";
+    return false;
+  }
+
+  return true;
+}
 
 }  // namespace xllm_service

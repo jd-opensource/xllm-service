@@ -12,7 +12,7 @@ cc_library(
     macros.h
     slice.h
     threadpool.h
-    ttft_predictor.h
+    time_predictor.h
     types.h
     utils.h
     hash_util.h
@@ -23,7 +23,7 @@ cc_library(
     global_gflags.cpp
     json_reader.cpp
     threadpool.cpp
-    ttft_predictor.cpp
+    time_predictor.cpp
     utils.cpp
     hash_util.cpp
     xllm/uuid.cpp
