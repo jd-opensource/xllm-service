@@ -49,6 +49,9 @@ struct Request {
   // instance routing
   Routing routing;
 
+  // the number of generated tokens
+  int64_t num_generated_tokens = 0;
+
   // the estimated TTFT obtained from the TTFT predictor
   int64_t estimated_ttft = 0;
 

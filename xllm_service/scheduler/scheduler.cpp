@@ -18,6 +18,7 @@ limitations under the License.
 #include "common/xllm/status.h"
 #include "loadbalance_policy/cache_aware_routing.h"
 #include "loadbalance_policy/round_robin.h"
+#include "loadbalance_policy/slo_aware_policy.h"
 #include "tokenizer/tokenizer_factory.h"
 
 static constexpr int kHeartbeatInterval = 3;  // in seconds
@@ -46,6 +47,8 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
   if (options.load_balance_policy() == "CAR") {
     lb_policy_ =
         std::make_unique<CacheAwareRouting>(instance_mgr_, global_kvcache_mgr_);
+  } else if (options.load_balance_policy() == "SLO_AWARE") {
+    lb_policy_ = std::make_unique<SloAwarePolicy>(options, instance_mgr_);
   } else {
     lb_policy_ = std::make_unique<RoundRobin>(instance_mgr_);
   }
@@ -307,6 +310,10 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
       return false;
     }
     cb = it->second->output_callback;
+
+    // update instance request metrics
+    it->second->num_generated_tokens += 1;
+    instance_mgr_->update_request_metrics(it->second, RequestAction::GENERATE);
   }
 
   size_t req_thread_idx = -1;
@@ -340,6 +347,7 @@ void Scheduler::update_request_metrics_for_prefill(
   std::lock_guard<std::mutex> guard(request_mutex_);
   auto it = requests_.find(service_request_id);
   if (it != requests_.end()) {
+    it->second->num_generated_tokens += 1;
     // update instance request metrics for prefill finished request
     instance_mgr_->update_request_metrics(it->second,
                                           RequestAction::FINISH_PREFILL);

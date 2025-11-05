@@ -22,6 +22,7 @@ limitations under the License.
 #include <iostream>
 #include <nlohmann/json.hpp>
 
+#include "common/global_gflags.h"
 #include "common/types.h"
 #include "common/utils.h"
 
@@ -31,6 +32,7 @@ static std::unordered_map<InstanceType, std::string> ETCD_KEYS_PREFIX_MAP = {
     {InstanceType::DEFAULT, "XLLM:DEFAULT:"},
     {InstanceType::PREFILL, "XLLM:PREFILL:"},
     {InstanceType::DECODE, "XLLM:DECODE:"},
+    {InstanceType::MIX, "XLLM:MIX:"},
 };
 static std::string ETCD_ALL_KEYS_PREFIX = "XLLM:";
 static std::string ETCD_LOADMETRICS_PREFIX = "XLLM:LOADMETRICS:";
@@ -68,11 +70,13 @@ void InstanceMgr::init() {
     }
     // create ttft predictor and request metrics for each instance
     {
-      std::lock_guard<std::mutex> ttft_predictor_lock(ttft_predictor_mutex_);
+      std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
       std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
       for (auto& pair : instances_) {
-        ttft_predictors_.insert_or_assign(
-            pair.first, TtftPredictor(pair.second.ttft_profiling_data));
+        time_predictors_.insert_or_assign(
+            pair.first,
+            TimePredictor(pair.second.ttft_profiling_data,
+                          pair.second.tpot_profiling_data));
         request_metrics_.insert_or_assign(pair.first, RequestMetrics());
       }
     }
@@ -90,10 +94,32 @@ void InstanceMgr::init() {
           case InstanceType::PREFILL:
             ist.second.instance_index = prefill_index_.size();
             prefill_index_.emplace_back(ist.first);
+            LOG(INFO) << "Register a new prefill instance, instance name : "
+                      << ist.first;
             break;
           case InstanceType::DECODE:
             ist.second.instance_index = decode_index_.size();
             decode_index_.emplace_back(ist.first);
+            LOG(INFO) << "Register a new decode instance, instance name : "
+                      << ist.first;
+            break;
+          case InstanceType::MIX:
+            // In the initial state, we set the first MIX type instance as a
+            // decode instance, while all subsequent instances are set as
+            // prefill instances.
+            if (decode_index_.size() > 0) {
+              ist.second.instance_index = prefill_index_.size();
+              ist.second.current_type = InstanceType::PREFILL;
+              prefill_index_.emplace_back(ist.first);
+              LOG(INFO) << "Register a new prefill instance, instance name : "
+                        << ist.first;
+            } else {
+              ist.second.instance_index = decode_index_.size();
+              ist.second.current_type = InstanceType::DECODE;
+              decode_index_.emplace_back(ist.first);
+              LOG(INFO) << "Register a new decode instance, instance name : "
+                        << ist.first;
+            }
             break;
           default:
             LOG(WARNING) << "Unknown InstanceType: " << int(ist.second.type);
@@ -105,10 +131,10 @@ void InstanceMgr::init() {
     for (auto& name : channel_creat_fail_insts) {
       instances_.erase(name);
       {
-        std::lock_guard<std::mutex> ttft_predictor_lock(ttft_predictor_mutex_);
+        std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
         std::lock_guard<std::mutex> request_metrics_lock(
             request_metrics_mutex_);
-        ttft_predictors_.erase(name);
+        time_predictors_.erase(name);
         request_metrics_.erase(name);
       }
     }
@@ -367,37 +393,62 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
         }
 
         {
-          std::lock_guard<std::mutex> ttft_predictor_lock(
-              ttft_predictor_mutex_);
+          std::lock_guard<std::mutex> time_predictor_lock(
+              time_predictor_mutex_);
           std::lock_guard<std::mutex> request_metrics_lock(
               request_metrics_mutex_);
           // create ttft predictor for instance
-          ttft_predictors_.emplace(
-              iter.first, TtftPredictor(iter.second.ttft_profiling_data));
+          time_predictors_.emplace(
+              iter.first,
+              TimePredictor(iter.second.ttft_profiling_data,
+                            iter.second.tpot_profiling_data));
 
           // create request metrics for instance
           request_metrics_.emplace(iter.first, RequestMetrics());
         }
-
-        instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
 
         switch (iter.second.type) {
           case InstanceType::DEFAULT:
           case InstanceType::PREFILL:
             iter.second.instance_index = prefill_index_.size();
             prefill_index_.emplace_back(iter.first);
+            LOG(INFO) << "Register a new prefill instance, instance name : "
+                      << iter.first;
             break;
           case InstanceType::DECODE:
             iter.second.instance_index = decode_index_.size();
             decode_index_.emplace_back(iter.first);
+            LOG(INFO) << "Register a new decode instance, instance name : "
+                      << iter.first;
+            break;
+          case InstanceType::MIX:
+            // In the initial state, we set the first MIX type instance as a
+            // decode instance, while all subsequent instances are set as
+            // prefill instances.
+            if (decode_index_.size() > 0) {
+              iter.second.instance_index = prefill_index_.size();
+              iter.second.current_type = InstanceType::PREFILL;
+              prefill_index_.emplace_back(iter.first);
+              LOG(INFO) << "Register a new prefill instance, instance name : "
+                        << iter.first;
+            } else {
+              iter.second.instance_index = decode_index_.size();
+              iter.second.current_type = InstanceType::DECODE;
+              decode_index_.emplace_back(iter.first);
+              LOG(INFO) << "Register a new decode instance, instance name : "
+                        << iter.first;
+            }
             break;
           default:
             LOG(WARNING) << "Unknown InstanceType: " << int(iter.second.type);
             break;
         }
+
+        instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
       }
 
       for (auto& iter : delete_list) {
+        LOG(INFO) << "delete instance: " << iter;
         if (instances_.find(iter) == instances_.end()) {
           LOG(ERROR) << "Instance is already deleted, instance_name: " << iter;
           continue;
@@ -423,6 +474,26 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
             instances_[decode_index_[index]].instance_index = index;
             decode_index_.pop_back();
             break;
+          case InstanceType::MIX:
+            if (index == -1) {
+              break;
+            }
+            if (instances_[iter].current_type == InstanceType::PREFILL) {
+              if (index >= prefill_index_.size()) {
+                break;
+              }
+              std::swap(prefill_index_[index], prefill_index_.back());
+              instances_[prefill_index_[index]].instance_index = index;
+              prefill_index_.pop_back();
+            } else {
+              if (index >= decode_index_.size()) {
+                break;
+              }
+              std::swap(decode_index_[index], decode_index_.back());
+              instances_[decode_index_[index]].instance_index = index;
+              decode_index_.pop_back();
+            }
+            break;
           default:
             LOG(WARNING) << "Unknown InstanceType: "
                          << int(instances_[iter].type);
@@ -432,11 +503,11 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
         instances_.erase(iter);
         cached_channels_.erase(iter);
         {
-          std::lock_guard<std::mutex> ttft_predictor_lock(
-              ttft_predictor_mutex_);
+          std::lock_guard<std::mutex> time_predictor_lock(
+              time_predictor_mutex_);
           std::lock_guard<std::mutex> request_metrics_lock(
               request_metrics_mutex_);
-          ttft_predictors_.erase(iter);
+          time_predictors_.erase(iter);
           request_metrics_.erase(iter);
         }
         {
@@ -521,45 +592,225 @@ void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
     return;
   }
 
-  int64_t token_length = request->token_ids.size();
+  int64_t num_prompt_tokens = request->token_ids.size();
+  int64_t num_generated_tokens = request->num_generated_tokens;
   switch (action) {
     case RequestAction::SCHEDULE:
       // update the request metrics for prefill and decode instances when
       // request is scheduled
       prefill_it->second.prefill_request_num += 1;
-      prefill_it->second.prefill_token_num += token_length;
-      prefill_it->second.estimated_prefill_time += request->estimated_ttft;
+      prefill_it->second.prefill_token_num += num_prompt_tokens;
 
       decode_it->second.decode_request_num += 1;
-      decode_it->second.decode_token_num += token_length;
+      decode_it->second.decode_token_num += num_prompt_tokens;
       break;
     case RequestAction::FINISH_PREFILL:
-      // only update the request metrics for prefill instance when request
+      // update the request metrics for prefill and decode instance when request
       // finishes the prefill phase
       prefill_it->second.prefill_request_num -= 1;
-      prefill_it->second.prefill_token_num -= token_length;
+      prefill_it->second.prefill_token_num -= num_prompt_tokens;
       prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
+
+      decode_it->second.decode_token_num += 1;
+      break;
+    case RequestAction::GENERATE:
+      // update the request metrics for decode instance when request generate a
+      // token
+      decode_it->second.decode_token_num += 1;
       break;
     case RequestAction::FINISH_DECODE:
       // update the request metrics for decode instance when request finishes
       // the decode phase
       decode_it->second.decode_request_num -= 1;
-      decode_it->second.decode_token_num -= token_length;
+      decode_it->second.decode_token_num -=
+          (num_prompt_tokens + num_generated_tokens);
       break;
     case RequestAction::CANCEL:
       // update the request metrics for prefill and decode instances when
       // request is cancelled
       prefill_it->second.prefill_request_num -= 1;
-      prefill_it->second.prefill_token_num -= token_length;
+      prefill_it->second.prefill_token_num -= num_prompt_tokens;
       prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
 
       decode_it->second.decode_request_num -= 1;
-      decode_it->second.decode_token_num -= token_length;
+      decode_it->second.decode_token_num -=
+          (num_prompt_tokens + num_generated_tokens);
       break;
     default:
       LOG(ERROR) << "Unknown RequestAction: " << static_cast<int32_t>(action);
       break;
   }
+
+  if (options_.load_balance_policy() == "SLO_AWARE" &&
+      decode_it->second.decode_request_num == 0) {
+    std::unique_lock<std::shared_mutex> instance_lock(inst_mutex_);
+    flip_decode_to_prefill(request->routing.decode_name);
+  }
+}
+
+bool InstanceMgr::select_instance_pair_on_slo(
+    std::shared_ptr<Request> request) {
+  std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+  std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+
+  if (prefill_index_.empty()) {
+    LOG(ERROR) << "No prefill or default instance found!";
+    return false;
+  }
+
+  // get min prefill time instance from request metrics
+  auto min_prefill_instance = prefill_index_[0];
+  int64_t min_prefill_time = std::numeric_limits<int64_t>::max();
+  int64_t total_prefill_time = 0;
+  for (auto& prefill_instance : prefill_index_) {
+    int64_t prefill_time =
+        request_metrics_[prefill_instance].estimated_prefill_time;
+    total_prefill_time += prefill_time;
+    if (prefill_time < min_prefill_time) {
+      min_prefill_instance = prefill_instance;
+      min_prefill_time = prefill_time;
+    }
+  }
+  int64_t avg_prefill_time = total_prefill_time / prefill_index_.size();
+
+  if (decode_index_.empty()) {
+    LOG(ERROR) << "No decode instance found!";
+    return false;
+  }
+
+  // select decode instance
+  auto min_decode_instance = decode_index_[0];
+  int64_t min_estimated_tpot = std::numeric_limits<int64_t>::max();
+  std::string target_decode_instance;
+  for (auto& decode_instance : decode_index_) {
+    int64_t token_num = request_metrics_[decode_instance].decode_token_num;
+    int64_t request_num = request_metrics_[decode_instance].decode_request_num;
+    auto& time_predictor = get_time_predictor(decode_instance);
+    // calculate the estimated tpot
+    int64_t estimated_tpot = time_predictor.predict_tpot(
+        token_num + request->token_ids.size(), request_num + 1);
+    // If the estimated tpot meets the requirements, the request will be
+    // directly dispatched to that instance.
+    if (estimated_tpot <= FLAGS_target_tpot && target_decode_instance.empty()) {
+      target_decode_instance = decode_instance;
+    }
+
+    // Record the instance with the minimum estimated tpot.
+    if (estimated_tpot < min_estimated_tpot) {
+      min_decode_instance = decode_instance;
+      min_estimated_tpot = estimated_tpot;
+    }
+  }
+
+  if (!target_decode_instance.empty()) {
+    request->routing.decode_name = target_decode_instance;
+  } else {
+    request->routing.decode_name = min_decode_instance;
+  }
+
+  // select prefill instance
+  float tpot_threshold = (decode_index_.size() - 1.0f) / decode_index_.size();
+  // When the prefill instances are already overloaded and there are other
+  // instances with lower loads in the decode group, we will dispatch the
+  // prefill requests to those instances to alleviate the pressure on the
+  // prefill instances.
+  if (min_prefill_time > FLAGS_target_ttft &&
+      target_decode_instance != min_decode_instance &&
+      min_estimated_tpot < FLAGS_target_tpot * tpot_threshold &&
+      request_metrics_[min_decode_instance].estimated_prefill_time <
+          min_prefill_time) {
+    request->routing.prefill_name = min_decode_instance;
+    // update estimated ttft
+    auto& time_predictor = get_time_predictor(min_decode_instance);
+    request->estimated_ttft =
+        time_predictor.predict_ttft(request->token_ids.size());
+    request_metrics_[min_decode_instance].estimated_prefill_time +=
+        request->estimated_ttft;
+  } else {
+    request->routing.prefill_name = min_prefill_instance;
+    // update estimated ttft
+    auto& time_predictor = get_time_predictor(min_prefill_instance);
+    request->estimated_ttft =
+        time_predictor.predict_ttft(request->token_ids.size());
+    request_metrics_[min_prefill_instance].estimated_prefill_time +=
+        request->estimated_ttft;
+  }
+
+  // If there are no decode instances that meet the requirements, switch a
+  // prefill instance to decode if the number of instances allows. Since the
+  // current disaggregated PD mode does not support prefill and decode using the
+  // same instance, we only switch the instance here, without dispatching the
+  // decode request to this instance.
+  float ttft_threshold = (prefill_index_.size() - 1.0f) / prefill_index_.size();
+  if (target_decode_instance.empty() &&
+      (avg_prefill_time < FLAGS_target_ttft * ttft_threshold ||
+       decode_index_.size() < prefill_index_.size())) {
+    flip_prefill_to_decode(request->routing.prefill_name);
+  }
+
+  return true;
+}
+
+void InstanceMgr::flip_prefill_to_decode(std::string& instance_name) {
+  if (prefill_index_.size() <= 1) {
+    // Ensure there is at least one prefill instance.
+    return;
+  }
+
+  if (instances_.find(instance_name) == instances_.end()) {
+    LOG(ERROR) << "Can't find instance, instance_name: " << instance_name;
+    return;
+  }
+
+  // delete instance name from prefill_index_
+  uint64_t index = instances_[instance_name].instance_index;
+  std::swap(prefill_index_[index], prefill_index_.back());
+  instances_[prefill_index_[index]].instance_index = index;
+  prefill_index_.pop_back();
+
+  // insert instance name to decode_index_
+  instances_[instance_name].instance_index = decode_index_.size();
+  instances_[instance_name].current_type = InstanceType::DECODE;
+  decode_index_.emplace_back(instance_name);
+
+  LOG(INFO) << "Flip prefill to decode, instance name : " << instance_name;
+}
+
+void InstanceMgr::flip_decode_to_prefill(std::string& instance_name) {
+  if (decode_index_.size() <= 1) {
+    // Ensure there is at least one decode instance.
+    return;
+  }
+
+  if (instances_.find(instance_name) == instances_.end()) {
+    LOG(ERROR) << "Can't find instance, instance_name: " << instance_name;
+    return;
+  }
+
+  // delete instance name from decode_index_
+  uint64_t index = instances_[instance_name].instance_index;
+  std::swap(decode_index_[index], decode_index_.back());
+  instances_[decode_index_[index]].instance_index = index;
+  decode_index_.pop_back();
+
+  // insert instance name to prefill_index
+  instances_[instance_name].instance_index = prefill_index_.size();
+  instances_[instance_name].current_type = InstanceType::PREFILL;
+  prefill_index_.emplace_back(instance_name);
+
+  LOG(INFO) << "Flip decode to prefill, instance name : " << instance_name;
+}
+
+TimePredictor& InstanceMgr::get_time_predictor(
+    const std::string& instance_name) {
+  std::lock_guard<std::mutex> lock(time_predictor_mutex_);
+
+  auto it = time_predictors_.find(instance_name);
+  if (it == time_predictors_.end()) {
+    LOG(FATAL) << "Find TimePredictor failed, instance name : "
+               << instance_name;
+  }
+  return it->second;
 }
 
 }  // namespace xllm_service

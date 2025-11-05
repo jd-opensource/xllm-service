@@ -91,6 +91,8 @@ void XllmRpcService::GetInstanceInfo(google::protobuf::RpcController* cntl_base,
     resp->set_type(proto::InstanceType::PREFILL);
   } else if (metainfo.type == InstanceType::DECODE) {
     resp->set_type(proto::InstanceType::DECODE);
+  } else if (metainfo.type == InstanceType::MIX) {
+    resp->set_type(proto::InstanceType::MIX);
   } else {
     resp->set_type(proto::InstanceType::DEFAULT);
   }

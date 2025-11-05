@@ -15,6 +15,8 @@ limitations under the License.
 
 #include "common/global_gflags.h"
 
+#include "brpc/reloadable_flags.h"
+
 DEFINE_string(server_host,
               "",
               "Server listen address, may be IPV4/IPV6/UDS."
@@ -83,9 +85,21 @@ DEFINE_int32(detect_disconnected_instance_interval,
              "The interval that server detect the disconnected instance.");
 
 DEFINE_int32(block_size,
-             16,
-             "Number of slots per kv cache block. Default is 16.");
+             128,
+             "Number of slots per kv cache block. Default is 128.");
 
 DEFINE_string(tokenizer_path, "", "tokenizer config path.");
 
 DEFINE_bool(enable_request_trace, false, "Whether to enable request trace");
+
+DEFINE_int32(target_ttft,
+             1000,
+             "Target Time to First Token (TTFT), in milliseconds.");
+
+BRPC_VALIDATE_GFLAG(target_ttft, brpc::NonNegativeInteger);
+
+DEFINE_int32(target_tpot,
+             50,
+             "Target Time Per Output Token (TPOT), in milliseconds.");
+
+BRPC_VALIDATE_GFLAG(target_tpot, brpc::NonNegativeInteger);

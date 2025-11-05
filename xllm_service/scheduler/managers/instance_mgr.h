@@ -25,7 +25,7 @@ limitations under the License.
 #include "common/macros.h"
 #include "common/options.h"
 #include "common/threadpool.h"
-#include "common/ttft_predictor.h"
+#include "common/time_predictor.h"
 #include "common/types.h"
 #include "request/request.h"
 #include "scheduler/etcd_client/etcd_client.h"
@@ -67,6 +67,9 @@ class InstanceMgr final {
   void update_request_metrics(std::shared_ptr<Request> request,
                               RequestAction action);
 
+  // select instances based on the SLO
+  bool select_instance_pair_on_slo(std::shared_ptr<Request> request);
+
   void set_as_master();
 
  private:
@@ -81,6 +84,12 @@ class InstanceMgr final {
 
   void update_load_metrics(const etcd::Response& response,
                            const uint64_t& prefix_len);
+
+  TimePredictor& get_time_predictor(const std::string& instance_name);
+
+  void flip_prefill_to_decode(std::string& instance_name);
+
+  void flip_decode_to_prefill(std::string& instance_name);
 
  private:
   Options options_;
@@ -107,9 +116,9 @@ class InstanceMgr final {
   std::unordered_map<std::string, LoadMetrics> updated_metrics_;
   std::unordered_set<std::string> removed_instance_;
 
-  // "instance name" -> "TtftPredictor" map
-  std::mutex ttft_predictor_mutex_;
-  std::unordered_map<std::string, TtftPredictor> ttft_predictors_;
+  // "instance name" -> "TimePredictor" map
+  std::mutex time_predictor_mutex_;
+  std::unordered_map<std::string, TimePredictor> time_predictors_;
 
   // Record the latest token latency metrics for each instance, including TTFT
   // and TBT.

@@ -74,6 +74,8 @@ enum class InstanceType : int8_t {
   PREFILL = 1,
   // decode instance
   DECODE = 2,
+  // mix instance
+  MIX = 3,
 };
 
 struct LoadMetrics {
@@ -114,6 +116,8 @@ struct LoadMetrics {
 
 // Record the latency monitoring metrics of the instance over the recent period
 struct LatencyMetrics {
+  LatencyMetrics() : recent_max_ttft(0), recent_max_tbt(0) {}
+
   LatencyMetrics(const int64_t& recent_max_ttft, const int64_t& recent_max_tbt)
       : recent_max_ttft(recent_max_ttft), recent_max_tbt(recent_max_tbt) {}
 
@@ -125,8 +129,9 @@ struct LatencyMetrics {
 enum class RequestAction : int32_t {
   SCHEDULE = 0,
   FINISH_PREFILL = 1,
-  FINISH_DECODE = 2,
-  CANCEL = 3,
+  GENERATE = 2,
+  FINISH_DECODE = 3,
+  CANCEL = 4,
 };
 
 // Record the request metrics of the instance
@@ -172,12 +177,18 @@ struct InstanceMetaInfo {
   std::vector<uint64_t> v_cache_ids;
   int32_t dp_size;
   // ttft profiling data
-  std::vector<std::pair<int32_t, int64_t>> ttft_profiling_data;
+  std::vector<std::pair<int32_t, double>> ttft_profiling_data;
+  // tpot profiling data
+  std::vector<std::tuple<int32_t, int32_t, double>> tpot_profiling_data;
 
   // latest heatbeat timestamp
   uint64_t latest_timestamp = 0;
 
   uint64_t instance_index = -1;
+
+  // Used to indicate the exact instance type of a MIX type instance currently,
+  // only used when the SLO Aware scheduling policy is enabled.
+  InstanceType current_type = InstanceType::PREFILL;
 
   nlohmann::json serialize_to_json() const {
     nlohmann::json json_val;
@@ -190,6 +201,7 @@ struct InstanceMetaInfo {
     json_val["v_cache_ids"] = v_cache_ids;
     json_val["dp_size"] = dp_size;
     json_val["ttft_profiling_data"] = ttft_profiling_data;
+    json_val["tpot_profiling_data"] = tpot_profiling_data;
     return json_val;
   }
 
@@ -227,6 +239,12 @@ struct InstanceMetaInfo {
       for (const auto& item : json_value.at("ttft_profiling_data")) {
         if (item.is_array() && item.size() == 2) {
           ttft_profiling_data.emplace_back(item[0], item[1]);
+        }
+      }
+
+      for (const auto& item : json_value.at("tpot_profiling_data")) {
+        if (item.is_array() && item.size() == 3) {
+          tpot_profiling_data.emplace_back(item[0], item[1], item[2]);
         }
       }
 
