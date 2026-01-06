@@ -19,3 +19,6 @@
 [submodule "third_party/smhasher"]
 	path = third_party/smhasher
 	url = https://gitcode.com/xLLM-AI/smhasher.git
+[submodule "third_party/xllm"]
+	path = third_party/xllm
+	url = https://github.com/jd-opensource/xllm.git

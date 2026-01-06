@@ -352,10 +352,10 @@ void XllmHttpServiceImpl::Completions(
 
   auto arena = response->GetArena();
   auto req_pb =
-      google::protobuf::Arena::CreateMessage<llm::proto::CompletionRequest>(
+      google::protobuf::Arena::CreateMessage<::xllm::proto::CompletionRequest>(
           arena);
   auto resp_pb =
-      google::protobuf::Arena::CreateMessage<llm::proto::CompletionResponse>(
+      google::protobuf::Arena::CreateMessage<::xllm::proto::CompletionResponse>(
           arena);
 
   std::string attachment = std::move(cntl->request_attachment().to_string());
@@ -421,9 +421,10 @@ void XllmHttpServiceImpl::ChatCompletions(
 
   auto arena = response->GetArena();
   auto req_pb =
-      google::protobuf::Arena::CreateMessage<llm::proto::ChatRequest>(arena);
+      google::protobuf::Arena::CreateMessage<::xllm::proto::ChatRequest>(arena);
   auto resp_pb =
-      google::protobuf::Arena::CreateMessage<llm::proto::ChatResponse>(arena);
+      google::protobuf::Arena::CreateMessage<::xllm::proto::ChatResponse>(
+          arena);
 
   std::string attachment = std::move(cntl->request_attachment().to_string());
   std::string error;

@@ -19,7 +19,8 @@ proto_library(
   NAME
     proto_xllm
   SRCS
-    xllm/chat.proto
-    xllm/common.proto
-    xllm/completion.proto
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/chat.proto
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/common.proto
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/completion.proto
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/rec.proto
 )
