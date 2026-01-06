@@ -219,10 +219,10 @@ class StreamCallData : public CallData {
   std::function<void(const std::string&)> trace_callback_;
 };
 
-using CompletionCallData = StreamCallData<llm::proto::CompletionRequest,
-                                          llm::proto::CompletionResponse>;
+using CompletionCallData = StreamCallData<::xllm::proto::CompletionRequest,
+                                          ::xllm::proto::CompletionResponse>;
 
 using ChatCallData =
-    StreamCallData<llm::proto::ChatRequest, llm::proto::ChatResponse>;
+    StreamCallData<::xllm::proto::ChatRequest, ::xllm::proto::ChatResponse>;
 
 }  // namespace xllm_service
