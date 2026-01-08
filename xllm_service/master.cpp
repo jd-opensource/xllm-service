@@ -184,6 +184,7 @@ int main(int argc, char* argv[]) {
       .num_threads(FLAGS_num_threads)
       .max_concurrency(FLAGS_max_concurrency)
       .timeout_ms(FLAGS_timeout_ms)
+      .connect_timeout_ms(FLAGS_connect_timeout_ms)
       .etcd_addr(FLAGS_etcd_addr)
       .load_balance_policy(FLAGS_load_balance_policy)
       .murmur_hash3_seed(FLAGS_murmur_hash3_seed)

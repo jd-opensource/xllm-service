@@ -83,7 +83,8 @@ void handle_non_stream_response(brpc::Controller* cntl,
                                 std::shared_ptr<T> call_data) {
   std::unique_ptr<brpc::Controller> cntl_guard(cntl);
   if (cntl->Failed()) {
-    LOG(WARNING) << "Fail to send stream generation, " << cntl->ErrorText();
+    call_data->finish_with_error(cntl->ErrorText());
+    LOG(ERROR) << "Fail to send stream generation, " << cntl->ErrorText();
     return;
   }
   call_data->write_and_finish(cntl->response_attachment().to_string());
@@ -100,7 +101,9 @@ void handle_first_response(brpc::Controller* cntl,
 
   std::unique_ptr<brpc::Controller> cntl_guard(cntl);
   if (cntl->Failed()) {
-    LOG(WARNING) << "Fail to send stream generation, " << cntl->ErrorText();
+    LOG(ERROR) << "Fail to send stream generation, " << cntl->ErrorText();
+    call_data->finish_with_error(cntl->ErrorText());
+    scheduler->finish_request(service_request_id, /*error=*/true);
     return;
   }
   if (stream) {
@@ -189,15 +192,6 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
                             request->service_request_id,
                             request->stream);
       channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
-      if (redirect_cntl->Failed()) {
-        LOG(ERROR) << "Redirect to instance error: "
-                   << redirect_cntl->ErrorText();
-        call_data->finish_with_error(redirect_cntl->ErrorText());
-        scheduler_->finish_request(request->service_request_id, /*error=*/true);
-        delete done;
-        delete redirect_cntl;
-        return;
-      }
       return;
     }
 
@@ -224,14 +218,7 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
       google::protobuf::Closure* done = brpc::NewCallback(
           &handle_non_stream_response<T>, redirect_cntl, call_data);
       channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
-      if (redirect_cntl->Failed()) {
-        LOG(ERROR) << "Redirect to instance error: "
-                   << redirect_cntl->ErrorText();
-        call_data->finish_with_error(redirect_cntl->ErrorText());
-        delete done;
-        delete redirect_cntl;
-        return;
-      }
+      return;
     }
   });
 }
@@ -273,7 +260,8 @@ void handle_get_response(brpc::Controller* cntl,
   std::unique_ptr<brpc::Controller> cntl_guard(cntl);
   std::unique_ptr<google::protobuf::Closure> done_guard(done);
   if (cntl->Failed()) {
-    LOG(WARNING) << "Fail to send stream generation, " << cntl->ErrorText();
+    LOG(ERROR) << "Fail to send stream generation, " << cntl->ErrorText();
+    call_data->finish_with_error(cntl->ErrorText());
     return;
   }
   call_data->write_and_finish(cntl->response_attachment().to_string());
@@ -325,13 +313,6 @@ void XllmHttpServiceImpl::get_serving(
         // Because `done'(last parameter) is NULL, this function waits until
         // the response comes back or error occurs(including timeout).
         channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
-        if (redirect_cntl->Failed()) {
-          LOG(ERROR) << "Redirect to instance error: "
-                     << redirect_cntl->ErrorText();
-          call_data->finish_with_error(redirect_cntl->ErrorText());
-          delete done;
-          delete redirect_cntl;
-        }
       });
 }
 
