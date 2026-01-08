@@ -335,6 +335,7 @@ bool InstanceMgr::create_channel(const std::string& instance_name) {
     options.protocol = "http";
     options.timeout_ms = options_.timeout_ms(); /*milliseconds*/
     options.max_retry = 3;
+    options.connect_timeout_ms = options_.connect_timeout_ms();
     std::string load_balancer = "";
     if (channel->Init(instance_name.c_str(), load_balancer.c_str(), &options) !=
         0) {

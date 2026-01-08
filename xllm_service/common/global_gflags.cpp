@@ -62,9 +62,16 @@ DEFINE_int32(max_concurrency,
              128,
              "Limit number of requests processed in parallel");
 
-DEFINE_int32(timeout_ms,
+DEFINE_int32(
+    timeout_ms,
+    -1,
+    "Max duration (millisecond) of bRPC Channel. -1 means wait indefinitely.");
+
+DEFINE_int32(connect_timeout_ms,
              -1,
-             "Max duration of bRPC Channel. -1 means wait indefinitely.");
+             "Max duration (millisecond) of bRPC to establish connections. -1 "
+             "means wait "
+             "indefinitely.");
 
 DEFINE_string(listen_addr,
               "",

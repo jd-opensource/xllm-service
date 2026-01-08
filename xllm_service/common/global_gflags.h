@@ -39,6 +39,8 @@ DECLARE_uint32(murmur_hash3_seed);
 
 DECLARE_int32(timeout_ms);
 
+DECLARE_int32(connect_timeout_ms);
+
 DECLARE_string(listen_addr);
 
 DECLARE_int32(port);

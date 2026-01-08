@@ -50,7 +50,9 @@ class Options {
 
   PROPERTY(int32_t, max_concurrency) = 32;
 
-  PROPERTY(int32_t, timeout_ms) = 32;
+  PROPERTY(int32_t, timeout_ms) = -1;
+
+  PROPERTY(int32_t, connect_timeout_ms) = -1;
 
   // instance manager options
   PROPERTY(std::string, etcd_addr);
