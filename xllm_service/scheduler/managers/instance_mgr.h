@@ -32,12 +32,14 @@ limitations under the License.
 #include "xllm_rpc_service.pb.h"
 
 namespace xllm_service {
+class Scheduler;
 
 class InstanceMgr final {
  public:
   explicit InstanceMgr(const Options& options,
                        const std::shared_ptr<EtcdClient>& etcd_client,
-                       const bool is_master_service);
+                       const bool is_master_service,
+                       Scheduler* scheduler);
 
   ~InstanceMgr();
 
@@ -130,6 +132,10 @@ class InstanceMgr final {
   // token count, and decode request count.
   std::mutex request_metrics_mutex_;
   std::unordered_map<std::string, RequestMetrics> request_metrics_;
+
+  // not own
+  // NOTE: need to refactor with scheduler in future
+  Scheduler* scheduler_;
 
   ThreadPool threadpool_;
 };

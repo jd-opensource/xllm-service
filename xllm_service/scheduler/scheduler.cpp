@@ -38,8 +38,8 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
     LOG(INFO) << "Set current service as master!";
   }
 
-  instance_mgr_ =
-      std::make_unique<InstanceMgr>(options, etcd_client_, is_master_service_);
+  instance_mgr_ = std::make_unique<InstanceMgr>(
+      options, etcd_client_, is_master_service_, this);
 
   global_kvcache_mgr_ = std::make_shared<GlobalKVCacheMgr>(
       options, etcd_client_, is_master_service_);
@@ -205,7 +205,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
       return response_handler_.send_result_to_client(
           call_data, service_request_id, created_time, model, req_output);
     };
-    requests_[request->service_request_id] = request;
+    requests_.emplace(request->service_request_id, request);
   }
 
   {
@@ -258,7 +258,7 @@ bool Scheduler::record_new_request(
       return response_handler_.send_result_to_client(
           call_data, service_request_id, created_time, model, req_output);
     };
-    requests_[request->service_request_id] = request;
+    requests_.emplace(request->service_request_id, request);
   }
 
   {
@@ -294,6 +294,30 @@ void Scheduler::finish_request(const std::string& service_request_id,
   {
     std::lock_guard<std::mutex> guard(thread_map_mutex_);
     remote_requests_output_thread_map_.erase(service_request_id);
+  }
+}
+
+void Scheduler::clear_requests_on_failed_instance(
+    const std::string& instance_name,
+    InstanceType type) {
+  std::lock_guard<std::mutex> lock(request_mutex_);
+  for (auto it = requests_.begin(); it != requests_.end();) {
+    if ((type == InstanceType::PREFILL &&
+         it->second->routing.prefill_name == instance_name) ||
+        (type == InstanceType::DECODE &&
+         it->second->routing.decode_name == instance_name)) {
+      auto service_request_id = it->second->service_request_id;
+      llm::RequestOutput req_output;
+      req_output.status = llm::Status(llm::StatusCode::CANCELLED,
+                                      "Instance is failed and deleted");
+      // call request callback
+      requests_[service_request_id]->output_callback(req_output);
+      LOG(INFO) << "Clear request on failed instance: " << instance_name
+                << " , service_request_id: " << service_request_id;
+      it = requests_.erase(it);
+    } else {
+      ++it;
+    }
   }
 }
 
