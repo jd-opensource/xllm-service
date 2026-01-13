@@ -28,13 +28,6 @@ limitations under the License.
 
 namespace xllm_service {
 
-struct ServiceConfig {
-  ServiceConfig(bool decode_to_service)
-      : enable_decode_response_to_service(decode_to_service) {}
-
-  bool enable_decode_response_to_service = false;
-};
-
 class Scheduler;
 class InstanceMgr;
 
@@ -46,8 +39,6 @@ class XllmRpcServiceImpl final {
   void heartbeat(const proto::HeartbeatRequest* req);
 
   InstanceMetaInfo get_instance_info(const std::string& instance_name);
-
-  ServiceConfig get_config();
 
   std::vector<std::string> get_static_decode_list(
       const std::string& prefill_name);
@@ -117,11 +108,6 @@ class XllmRpcService : public proto::XllmRpcService {
                            const proto::DisaggStreamGenerations* req,
                            proto::StatusSet* resp,
                            google::protobuf::Closure* done) override;
-
-  virtual void GetConfig(google::protobuf::RpcController* cntl_base,
-                         const proto::Empty* req,
-                         proto::ServiceConfig* resp,
-                         google::protobuf::Closure* done) override;
 
  private:
   std::unique_ptr<XllmRpcServiceImpl> xllm_rpc_service_impl_;
