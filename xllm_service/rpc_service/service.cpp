@@ -28,10 +28,7 @@ namespace xllm_service {
 
 XllmRpcServiceImpl::XllmRpcServiceImpl(const Options& options,
                                        Scheduler* scheduler)
-    : options_(options), scheduler_(scheduler) {
-  enable_decode_response_to_service_ =
-      utils::get_bool_env("ENABLE_DECODE_RESPONSE_TO_SERVICE", false);
-}
+    : options_(options), scheduler_(scheduler) {}
 
 XllmRpcServiceImpl::~XllmRpcServiceImpl() { scheduler_->exited(); }
 
@@ -57,10 +54,6 @@ std::vector<std::string> XllmRpcServiceImpl::get_static_prefill_list(
 bool XllmRpcServiceImpl::handle_generation(
     const llm::RequestOutput& request_output) {
   return scheduler_->handle_generation(request_output);
-}
-
-ServiceConfig XllmRpcServiceImpl::get_config() {
-  return ServiceConfig(enable_decode_response_to_service_);
 }
 
 XllmRpcService::XllmRpcService(const Options& options, Scheduler* scheduler) {
@@ -210,16 +203,6 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
     resp->mutable_all_status()->Add()->set_ok(
         xllm_rpc_service_impl_->handle_generation(request_output));
   }
-}
-
-void XllmRpcService::GetConfig(google::protobuf::RpcController* cntl_base,
-                               const proto::Empty* req,
-                               proto::ServiceConfig* resp,
-                               google::protobuf::Closure* done) {
-  brpc::ClosureGuard done_guard(done);
-  auto config = xllm_rpc_service_impl_->get_config();
-  resp->set_enable_decode_response_to_service(
-      config.enable_decode_response_to_service);
 }
 
 }  // namespace xllm_service

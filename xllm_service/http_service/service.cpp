@@ -51,8 +51,6 @@ std::string generate_service_request_id(const std::string& method) {
 XllmHttpServiceImpl::XllmHttpServiceImpl(const Options& options,
                                          Scheduler* scheduler)
     : options_(options), scheduler_(scheduler) {
-  enable_decode_response_to_service_ =
-      utils::get_bool_env("ENABLE_DECODE_RESPONSE_TO_SERVICE", false);
   initialized_ = true;
   thread_pool_ = std::make_unique<ThreadPool>(options_.num_threads());
   request_tracer_ =
@@ -151,15 +149,13 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
                                  const std::string& req_attachment,
                                  std::shared_ptr<Request> request,
                                  const std::string& method) {
-  // record request when enable_decode_response_to_service.
-  if (enable_decode_response_to_service_) {
-    bool success = scheduler_->record_new_request(call_data, request);
-    if (!success) {
-      LOG(ERROR) << "rpc service add new request error: "
-                 << request->service_request_id;
-      call_data->finish_with_error("Internal runtime error.");
-      return;
-    }
+  // record request
+  bool success = scheduler_->record_new_request(call_data, request);
+  if (!success) {
+    LOG(ERROR) << "rpc service add new request error: "
+               << request->service_request_id;
+    call_data->finish_with_error("Internal runtime error.");
+    return;
   }
 
   // async redistribute the request and wait the response
@@ -181,45 +177,16 @@ void XllmHttpServiceImpl::handle(std::shared_ptr<T> call_data,
     // redirect the input request content
     redirect_cntl->request_attachment().append(req_attachment);
 
-    // 1. tokens will be received via rpc channel.
-    //
-    if (enable_decode_response_to_service_) {
-      google::protobuf::Closure* done =
-          brpc::NewCallback(&handle_first_response<T>,
-                            redirect_cntl,
-                            call_data,
-                            scheduler_,
-                            request->service_request_id,
-                            request->stream);
-      channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
-      return;
-    }
-
-    // 2. tokens will be received via http channel.
-    //
-    if (request->stream) {
-      // receive tokens in progressive mode.
-      redirect_cntl->response_will_be_read_progressively();
-
-      // Because `done'(last parameter) is NULL, this function waits until
-      // the response comes back or error occurs(including timeout).
-      channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, NULL);
-      if (redirect_cntl->Failed()) {
-        LOG(ERROR) << "Redirect to instance error: "
-                   << redirect_cntl->ErrorText();
-        call_data->finish_with_error(redirect_cntl->ErrorText());
-        delete redirect_cntl;
-        return;
-      }
-      auto reader = new CustomProgressiveReader<T>(redirect_cntl, call_data);
-      // redirect_cntl and reader will be deleted in CustomProgressiveReader.
-      redirect_cntl->ReadProgressiveAttachmentBy(reader);
-    } else {
-      google::protobuf::Closure* done = brpc::NewCallback(
-          &handle_non_stream_response<T>, redirect_cntl, call_data);
-      channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
-      return;
-    }
+    // tokens will be received via rpc channel.
+    google::protobuf::Closure* done =
+        brpc::NewCallback(&handle_first_response<T>,
+                          redirect_cntl,
+                          call_data,
+                          scheduler_,
+                          request->service_request_id,
+                          request->stream);
+    channel_ptr->CallMethod(NULL, redirect_cntl, NULL, NULL, done);
+    return;
   });
 }
 
