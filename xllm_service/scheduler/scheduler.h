@@ -63,6 +63,9 @@ class Scheduler final {
   void finish_request(const std::string& service_request_id,
                       bool error = false);
 
+  void clear_requests_on_failed_instance(const std::string& instance_name,
+                                         InstanceType type);
+
   // handle generations from prefill/decode instance
   bool handle_generation(const llm::RequestOutput& request_output);
 

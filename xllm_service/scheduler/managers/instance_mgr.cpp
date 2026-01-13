@@ -25,6 +25,9 @@ limitations under the License.
 #include "common/global_gflags.h"
 #include "common/types.h"
 #include "common/utils.h"
+#include "common/xllm/output.h"
+#include "common/xllm/status.h"
+#include "scheduler/scheduler.h"
 
 namespace {
 using xllm_service::InstanceType;
@@ -43,10 +46,12 @@ namespace xllm_service {
 
 InstanceMgr::InstanceMgr(const Options& options,
                          const std::shared_ptr<EtcdClient>& etcd_client,
-                         const bool is_master_service)
+                         const bool is_master_service,
+                         Scheduler* scheduler)
     : options_(options),
       is_master_service_(is_master_service),
-      etcd_client_(etcd_client) {
+      etcd_client_(etcd_client),
+      scheduler_(scheduler) {
   auto handle_instance_metainfo =
       std::bind(&InstanceMgr::update_instance_metainfo,
                 this,
@@ -76,6 +81,7 @@ void InstanceMgr::init() {
     {
       std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
       std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+
       for (auto& pair : instances_) {
         time_predictors_.insert_or_assign(
             pair.first,
@@ -402,6 +408,7 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
               time_predictor_mutex_);
           std::lock_guard<std::mutex> request_metrics_lock(
               request_metrics_mutex_);
+
           // create ttft predictor for instance
           time_predictors_.emplace(
               iter.first,
@@ -504,6 +511,8 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
                          << int(instances_[iter].type);
             break;
         }
+        scheduler_->clear_requests_on_failed_instance(iter,
+                                                      instances_[iter].type);
 
         instances_.erase(iter);
         cached_channels_.erase(iter);
@@ -629,6 +638,7 @@ void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
       decode_it->second.decode_request_num -= 1;
       decode_it->second.decode_token_num -=
           (num_prompt_tokens + num_generated_tokens);
+
       break;
     case RequestAction::CANCEL:
       // update the request metrics for prefill and decode instances when
@@ -640,6 +650,7 @@ void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
       decode_it->second.decode_request_num -= 1;
       decode_it->second.decode_token_num -=
           (num_prompt_tokens + num_generated_tokens);
+
       break;
     default:
       LOG(ERROR) << "Unknown RequestAction: " << static_cast<int32_t>(action);
