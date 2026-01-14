@@ -19,13 +19,15 @@ limitations under the License.
 
 #include "common/hash_util.h"
 
-namespace xllm_service {
-
+namespace {
 inline size_t round_down(size_t n, size_t multiple) {
   return (n / multiple) * multiple;
 }
 
-static std::string ETCD_CACHE_PREFIX = "XLLM:CACHE:";
+std::string ETCD_CACHE_PREFIX = "XLLM:CACHE:";
+}  // namespace
+
+namespace xllm_service {
 
 GlobalKVCacheMgr::GlobalKVCacheMgr(
     const Options& options,
