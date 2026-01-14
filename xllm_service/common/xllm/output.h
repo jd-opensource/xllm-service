@@ -25,7 +25,7 @@ limitations under the License.
 #include "status.h"
 
 namespace xllm_service {
-namespace llm {
+namespace xllm {
 
 // "stop" - the model hit a natural stop point or a provided stop sequence.
 // "length" - the maximum number of tokens specified in the request was reached.
@@ -125,8 +125,8 @@ inline std::optional<std::string> to_string(FinishReason reason) {
   return std::nullopt;
 }
 
-}  // namespace llm
+}  // namespace xllm
 
-using OutputCallback = std::function<bool(llm::RequestOutput output)>;
+using OutputCallback = std::function<bool(xllm::RequestOutput output)>;
 
 }  // namespace xllm_service

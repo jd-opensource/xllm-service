@@ -190,7 +190,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
          include_usage = request->include_usage,
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(request->latest_generate_time)](
-            const llm::RequestOutput& req_output) mutable -> bool {
+            const xllm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
         const auto& status = req_output.status.value();
         if (!status.ok()) {
@@ -243,7 +243,7 @@ bool Scheduler::record_new_request(
          include_usage = request->include_usage,
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(request->latest_generate_time)](
-            const llm::RequestOutput& req_output) mutable -> bool {
+            const xllm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
         const auto& status = req_output.status.value();
         if (!status.ok()) {
@@ -310,8 +310,8 @@ void Scheduler::clear_requests_on_failed_instance(
         (type == InstanceType::DECODE &&
          it->second->routing.decode_name == instance_name)) {
       auto service_request_id = it->second->service_request_id;
-      llm::RequestOutput req_output;
-      req_output.status = llm::Status(llm::StatusCode::CANCELLED,
+      xllm::RequestOutput req_output;
+      req_output.status = xllm::Status(xllm::StatusCode::CANCELLED,
                                       "Instance is failed and deleted");
       // call request callback
       requests_[service_request_id]->output_callback(req_output);
@@ -324,7 +324,7 @@ void Scheduler::clear_requests_on_failed_instance(
   }
 }
 
-bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
+bool Scheduler::handle_generation(const xllm::RequestOutput& request_output) {
   const std::string& service_request_id = request_output.service_request_id;
   OutputCallback cb;
   {

@@ -20,7 +20,7 @@ limitations under the License.
 #include <string>
 
 namespace xllm_service {
-namespace llm {
+namespace xllm {
 
 class ShortUUID {
  public:
@@ -35,5 +35,5 @@ class ShortUUID {
   absl::BitGen gen_;
 };
 
-}  // namespace llm
+}  // namespace xllm
 }  // namespace xllm_service

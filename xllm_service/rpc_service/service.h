@@ -48,7 +48,7 @@ class XllmRpcServiceImpl final {
 
  public:
   // handle generations from prefill/decode instance
-  bool handle_generation(const llm::RequestOutput& request_output);
+  bool handle_generation(const xllm::RequestOutput& request_output);
 
  private:
   Options options_;

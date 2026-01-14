@@ -34,21 +34,21 @@ class ResponseHandler final {
                             bool include_usage,
                             int64_t created_time,
                             const std::string& model,
-                            const llm::RequestOutput& output);
+                            const xllm::RequestOutput& output);
   bool send_result_to_client(std::shared_ptr<ChatCallData> call_data,
                              int64_t created_time,
                              const std::string& model,
-                             const llm::RequestOutput& req_output);
+                             const xllm::RequestOutput& req_output);
 
   bool send_delta_to_client(std::shared_ptr<CompletionCallData> call_data,
                             bool include_usage,
                             int64_t created_time,
                             const std::string& model,
-                            const llm::RequestOutput& output);
+                            const xllm::RequestOutput& output);
   bool send_result_to_client(std::shared_ptr<CompletionCallData> call_data,
                              int64_t created_time,
                              const std::string& model,
-                             const llm::RequestOutput& req_output);
+                             const xllm::RequestOutput& req_output);
 };
 
 }  // namespace xllm_service

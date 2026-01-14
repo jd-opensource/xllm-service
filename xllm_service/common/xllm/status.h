@@ -21,7 +21,7 @@ limitations under the License.
 #include <string>
 
 namespace xllm_service {
-namespace llm {
+namespace xllm {
 
 enum class StatusCode : uint8_t {
   // Not an error; returned on success.
@@ -70,5 +70,5 @@ inline std::ostream& operator<<(std::ostream& os, const Status& status) {
   return os;
 }
 
-}  // namespace llm
+}  // namespace xllm
 }  // namespace xllm_service

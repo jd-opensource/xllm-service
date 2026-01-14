@@ -22,7 +22,7 @@ bool ResponseHandler::send_delta_to_client(
     bool include_usage,
     int64_t created_time,
     const std::string& model,
-    const llm::RequestOutput& output) {
+    const xllm::RequestOutput& output) {
   auto& response = call_data->response();
   auto& request_id = output.request_id;
 
@@ -118,7 +118,7 @@ bool ResponseHandler::send_delta_to_client(
     bool include_usage,
     int64_t created_time,
     const std::string& model,
-    const llm::RequestOutput& output) {
+    const xllm::RequestOutput& output) {
   auto& response = call_data->response();
   auto& request_id = output.request_id;
 
@@ -199,7 +199,7 @@ bool ResponseHandler::send_result_to_client(
     std::shared_ptr<ChatCallData> call_data,
     int64_t created_time,
     const std::string& model,
-    const llm::RequestOutput& req_output) {
+    const xllm::RequestOutput& req_output) {
   auto& response = call_data->response();
   auto& request_id = req_output.request_id;
   response.set_object("chat.completion");
@@ -261,7 +261,7 @@ bool ResponseHandler::send_result_to_client(
     std::shared_ptr<CompletionCallData> call_data,
     int64_t created_time,
     const std::string& model,
-    const llm::RequestOutput& req_output) {
+    const xllm::RequestOutput& req_output) {
   auto& response = call_data->response();
   auto& request_id = req_output.request_id;
   response.set_object("text_completion");
