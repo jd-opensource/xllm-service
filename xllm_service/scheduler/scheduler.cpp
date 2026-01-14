@@ -184,7 +184,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
          first_message_sent = std::unordered_set<size_t>(),
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(absl::Now())](
-            const llm::RequestOutput& req_output) mutable -> bool {
+            const xllm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
         const auto& status = req_output.status.value();
         if (!status.ok()) {
@@ -238,7 +238,7 @@ bool Scheduler::record_new_request(
          include_usage = request->include_usage,
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(absl::Now())](
-            const llm::RequestOutput& req_output) mutable -> bool {
+            const xllm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
         const auto& status = req_output.status.value();
         if (!status.ok()) {
@@ -297,7 +297,7 @@ void Scheduler::finish_request(const std::string& service_request_id,
   }
 }
 
-bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
+bool Scheduler::handle_generation(const xllm::RequestOutput& request_output) {
   const std::string& service_request_id = request_output.service_request_id;
   OutputCallback cb;
   {

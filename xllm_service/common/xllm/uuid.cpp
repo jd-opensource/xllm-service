@@ -19,7 +19,7 @@ limitations under the License.
 #include <absl/random/distributions.h>
 
 namespace xllm_service {
-namespace llm {
+namespace xllm {
 
 std::string ShortUUID::random(size_t len) {
   if (len == 0) {
@@ -35,5 +35,5 @@ std::string ShortUUID::random(size_t len) {
   return uuid;
 }
 
-}  // namespace llm
+}  // namespace xllm
 }  // namespace xllm_service
