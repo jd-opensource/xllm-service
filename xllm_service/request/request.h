@@ -49,6 +49,9 @@ struct Request {
   // instance routing
   Routing routing;
 
+  // prefill stage finished
+  bool prefill_stage_finished = false;
+
   // the number of generated tokens
   int64_t num_generated_tokens = 0;
 

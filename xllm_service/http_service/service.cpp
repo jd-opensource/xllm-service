@@ -105,17 +105,23 @@ void handle_first_response(brpc::Controller* cntl,
   if (stream) {
     // write first token from prefill
     std::string response = cntl->response_attachment().to_string();
-    // check and skip "data:" prefix for stream request to handle error in
-    // prefill instance
-    if (response.find("data:") != 0) {
-      call_data->finish_with_error(response);
-      scheduler->finish_request(service_request_id, /*error*/ true);
-      return;
+    // check response for stream request to handle error in prefill instance
+    // Currently, 1.response with "data:" prefix means no error and return the
+    // first token 2.empty response means the first token can not directly
+    // generate characters
+    if (!response.empty()) {
+      if (response.find("data:") != 0) {
+        LOG(ERROR) << "Fail in the prefill instance, " << response;
+        call_data->finish_with_error(response);
+        scheduler->finish_request(service_request_id, /*error*/ true);
+        return;
+      }
+      call_data->write(response);
     }
-    call_data->write(response);
   }
   // non-stream, all generated tokens will be sent from decode via rpc service.
-  // all error in prefill instance will be handled through cntrl->setFailed()
+  // non-stream, all error in prefill instance will be handled through
+  // cntrl->setFailed()
 
   // update request metrics for prefill finished request
   scheduler->update_request_metrics_for_prefill(service_request_id);

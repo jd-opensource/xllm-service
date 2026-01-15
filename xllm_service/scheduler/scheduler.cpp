@@ -296,7 +296,8 @@ void Scheduler::clear_requests_on_failed_instance(
   std::lock_guard<std::mutex> lock(request_mutex_);
   for (auto it = requests_.begin(); it != requests_.end();) {
     if ((type == InstanceType::PREFILL &&
-         it->second->routing.prefill_name == instance_name) ||
+         it->second->routing.prefill_name == instance_name &&
+         !it->second->prefill_stage_finished) ||
         (type == InstanceType::DECODE &&
          it->second->routing.decode_name == instance_name)) {
       auto service_request_id = it->second->service_request_id;
@@ -364,6 +365,7 @@ void Scheduler::update_request_metrics_for_prefill(
   std::lock_guard<std::mutex> guard(request_mutex_);
   auto it = requests_.find(service_request_id);
   if (it != requests_.end()) {
+    it->second->prefill_stage_finished = true;
     it->second->num_generated_tokens += 1;
     // update instance request metrics for prefill finished request
     instance_mgr_->update_request_metrics(it->second,
