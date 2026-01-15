@@ -94,21 +94,31 @@ void handle_first_response(brpc::Controller* cntl,
                            Scheduler* scheduler,
                            std::string service_request_id,
                            bool stream) {
-  // update request metrics for prefill finished request
-  scheduler->update_request_metrics_for_prefill(service_request_id);
-
   std::unique_ptr<brpc::Controller> cntl_guard(cntl);
   if (cntl->Failed()) {
     LOG(ERROR) << "Fail to send stream generation, " << cntl->ErrorText();
     call_data->finish_with_error(cntl->ErrorText());
-    scheduler->finish_request(service_request_id, /*error=*/true);
+    scheduler->finish_request(service_request_id, /*error*/ true);
     return;
   }
+
   if (stream) {
     // write first token from prefill
-    call_data->write(cntl->response_attachment().to_string());
+    std::string response = cntl->response_attachment().to_string();
+    // check and skip "data:" prefix for stream request to handle error in
+    // prefill instance
+    if (response.find("data:") != 0) {
+      call_data->finish_with_error(response);
+      scheduler->finish_request(service_request_id, /*error*/ true);
+      return;
+    }
+    call_data->write(response);
   }
   // non-stream, all generated tokens will be sent from decode via rpc service.
+  // all error in prefill instance will be handled through cntrl->setFailed()
+
+  // update request metrics for prefill finished request
+  scheduler->update_request_metrics_for_prefill(service_request_id);
 }
 
 template <typename T>
