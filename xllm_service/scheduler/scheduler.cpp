@@ -181,7 +181,6 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
          model = request->model,
          stream = request->stream,
          include_usage = request->include_usage,
-         first_message_sent = std::unordered_set<size_t>(),
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(absl::Now())](
             const llm::RequestOutput& req_output) mutable -> bool {
@@ -193,17 +192,12 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
       }
 
       if (stream) {
-        return response_handler_.send_delta_to_client(call_data,
-                                                      &first_message_sent,
-                                                      include_usage,
-                                                      service_request_id,
-                                                      created_time,
-                                                      model,
-                                                      req_output);
+        return response_handler_.send_delta_to_client(
+            call_data, include_usage, created_time, model, req_output);
       }
 
       return response_handler_.send_result_to_client(
-          call_data, service_request_id, created_time, model, req_output);
+          call_data, created_time, model, req_output);
     };
     requests_[request->service_request_id] = request;
   }
@@ -247,16 +241,12 @@ bool Scheduler::record_new_request(
       }
 
       if (stream) {
-        return response_handler_.send_delta_to_client(call_data,
-                                                      include_usage,
-                                                      service_request_id,
-                                                      created_time,
-                                                      model,
-                                                      req_output);
+        return response_handler_.send_delta_to_client(
+            call_data, include_usage, created_time, model, req_output);
       }
 
       return response_handler_.send_result_to_client(
-          call_data, service_request_id, created_time, model, req_output);
+          call_data, created_time, model, req_output);
     };
     requests_[request->service_request_id] = request;
   }

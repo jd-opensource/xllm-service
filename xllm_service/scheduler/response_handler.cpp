@@ -19,36 +19,16 @@ namespace xllm_service {
 
 bool ResponseHandler::send_delta_to_client(
     std::shared_ptr<ChatCallData> call_data,
-    std::unordered_set<size_t>* first_message_sent,
     bool include_usage,
-    const std::string& request_id,
     int64_t created_time,
     const std::string& model,
     const llm::RequestOutput& output) {
   auto& response = call_data->response();
+  auto& request_id = output.request_id;
 
   // send delta to client
   for (const auto& seq_output : output.outputs) {
     const auto& index = seq_output.index;
-
-    // send first chunk with role as assistant
-    if (first_message_sent->find(index) == first_message_sent->end()) {
-      response.Clear();
-      response.set_object("chat.completion.chunk");
-      response.set_id(request_id);
-      response.set_created(created_time);
-      response.set_model(model);
-      auto* choice = response.add_choices();
-      choice->set_index(index);
-      auto* message = choice->mutable_delta();
-      message->set_role("assistant");
-      message->set_content("");
-      // update first_message_sent
-      first_message_sent->insert(index);
-      if (!call_data->write(response)) {
-        return false;
-      }
-    }
 
     // send chunk with delta message
     if (!seq_output.text.empty()) {
@@ -136,11 +116,11 @@ bool ResponseHandler::send_delta_to_client(
 bool ResponseHandler::send_delta_to_client(
     std::shared_ptr<CompletionCallData> call_data,
     bool include_usage,
-    const std::string& request_id,
     int64_t created_time,
     const std::string& model,
     const llm::RequestOutput& output) {
   auto& response = call_data->response();
+  auto& request_id = output.request_id;
 
   for (const auto& seq_output : output.outputs) {
     // send chunk with delta message
@@ -217,11 +197,11 @@ bool ResponseHandler::send_delta_to_client(
 
 bool ResponseHandler::send_result_to_client(
     std::shared_ptr<ChatCallData> call_data,
-    const std::string& request_id,
     int64_t created_time,
     const std::string& model,
     const llm::RequestOutput& req_output) {
   auto& response = call_data->response();
+  auto& request_id = req_output.request_id;
   response.set_object("chat.completion");
   response.set_id(request_id);
   response.set_created(created_time);
@@ -279,11 +259,11 @@ bool ResponseHandler::send_result_to_client(
 
 bool ResponseHandler::send_result_to_client(
     std::shared_ptr<CompletionCallData> call_data,
-    const std::string& request_id,
     int64_t created_time,
     const std::string& model,
     const llm::RequestOutput& req_output) {
   auto& response = call_data->response();
+  auto& request_id = req_output.request_id;
   response.set_object("text_completion");
   response.set_id(request_id);
   response.set_created(created_time);
