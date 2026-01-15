@@ -22,9 +22,8 @@ limitations under the License.
 #include <mutex>
 #include <nlohmann/json.hpp>
 
-namespace xllm_service {
-
-static std::string get_current_timestamp() {
+namespace {
+std::string get_current_timestamp() {
   auto now = std::chrono::system_clock::now();
   auto in_time_t = std::chrono::system_clock::to_time_t(now);
 
@@ -32,6 +31,9 @@ static std::string get_current_timestamp() {
   ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d %H:%M:%S");
   return ss.str();
 }
+}  // namespace
+
+namespace xllm_service {
 
 RequestTracer::RequestTracer(bool enable_request_trace)
     : enable_request_trace_(enable_request_trace) {

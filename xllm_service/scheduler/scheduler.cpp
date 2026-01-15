@@ -21,8 +21,11 @@ limitations under the License.
 #include "loadbalance_policy/slo_aware_policy.h"
 #include "tokenizer/tokenizer_factory.h"
 
-static constexpr int kHeartbeatInterval = 3;  // in seconds
-static std::string ETCD_MASTER_SERVICE_KEY = "XLLM:SERVICE:MASTER";
+namespace {
+constexpr int32_t kHeartbeatInterval = 3;  // in seconds
+
+std::string ETCD_MASTER_SERVICE_KEY = "XLLM:SERVICE:MASTER";
+}  // namespace
 
 namespace xllm_service {
 

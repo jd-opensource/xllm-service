@@ -15,7 +15,9 @@ limitations under the License.
 
 #include "time_predictor.h"
 
-static constexpr int32_t kDegree = 2;
+namespace {
+constexpr int32_t kDegree = 2;
+}  // namespace
 
 namespace xllm_service {
 

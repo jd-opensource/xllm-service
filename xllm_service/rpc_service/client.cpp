@@ -17,10 +17,12 @@ limitations under the License.
 
 #include <glog/logging.h>
 
-namespace xllm_service {
-
+namespace {
 // magic number, TODO: move to config file or env var
-static constexpr int kHeartbeatInterval = 3;  // in seconds
+constexpr int32_t kHeartbeatInterval = 3;  // in seconds
+}  // namespace
+
+namespace xllm_service {
 
 XllmRpcClient::XllmRpcClient(const std::string& instace_name,
                              const std::string& master_addr,

@@ -26,16 +26,20 @@ limitations under the License.
 #include "common/types.h"
 #include "common/utils.h"
 
-namespace xllm_service {
-
-static std::unordered_map<InstanceType, std::string> ETCD_KEYS_PREFIX_MAP = {
+namespace {
+using xllm_service::InstanceType;
+std::unordered_map<InstanceType, std::string> ETCD_KEYS_PREFIX_MAP = {
     {InstanceType::DEFAULT, "XLLM:DEFAULT:"},
     {InstanceType::PREFILL, "XLLM:PREFILL:"},
     {InstanceType::DECODE, "XLLM:DECODE:"},
     {InstanceType::MIX, "XLLM:MIX:"},
 };
-static std::string ETCD_ALL_KEYS_PREFIX = "XLLM:";
-static std::string ETCD_LOADMETRICS_PREFIX = "XLLM:LOADMETRICS:";
+
+std::string ETCD_ALL_KEYS_PREFIX = "XLLM:";
+std::string ETCD_LOADMETRICS_PREFIX = "XLLM:LOADMETRICS:";
+}  // namespace
+
+namespace xllm_service {
 
 InstanceMgr::InstanceMgr(const Options& options,
                          const std::shared_ptr<EtcdClient>& etcd_client,
