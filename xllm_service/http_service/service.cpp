@@ -37,7 +37,7 @@ limitations under the License.
 namespace xllm_service {
 
 namespace {
-thread_local llm::ShortUUID short_uuid;
+thread_local xllm::ShortUUID short_uuid;
 std::string generate_service_request_id(const std::string& method) {
   std::stringstream ss;
   ss << method << "-";

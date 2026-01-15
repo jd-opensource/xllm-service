@@ -64,7 +64,7 @@ class Scheduler final {
                       bool error = false);
 
   // handle generations from prefill/decode instance
-  bool handle_generation(const llm::RequestOutput& request_output);
+  bool handle_generation(const xllm::RequestOutput& request_output);
 
   // update request metrics for prefill finished request
   void update_request_metrics_for_prefill(
