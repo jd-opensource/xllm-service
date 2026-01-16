@@ -21,12 +21,16 @@ limitations under the License.
 #include <chrono>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "common/global_gflags.h"
 #include "common/types.h"
 #include "common/utils.h"
 #include "common/xllm/output.h"
 #include "common/xllm/status.h"
+#include "disagg_pd.pb.h"
 #include "scheduler/scheduler.h"
 
 namespace {
@@ -72,80 +76,20 @@ InstanceMgr::InstanceMgr(const Options& options,
 }
 
 void InstanceMgr::init() {
+  std::unordered_map<std::string, InstanceMetaInfo> loaded_instances;
   {
     std::unique_lock<std::shared_mutex> lock(inst_mutex_);
     for (auto& it : ETCD_KEYS_PREFIX_MAP) {
-      etcd_client_->get_prefix(it.second, &instances_);
+      etcd_client_->get_prefix(it.second, &loaded_instances);
     }
-    // create ttft predictor and request metrics for each instance
-    {
-      std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
-      std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+    LOG(INFO) << "Load instance info from etcd:" << loaded_instances.size();
 
-      for (auto& pair : instances_) {
-        time_predictors_.insert_or_assign(
-            pair.first,
-            TimePredictor(pair.second.ttft_profiling_data,
-                          pair.second.tpot_profiling_data));
-        request_metrics_.insert_or_assign(pair.first, RequestMetrics());
-      }
-    }
-    LOG(INFO) << "Load instance info from etcd:" << instances_.size();
-    std::vector<std::string> channel_creat_fail_insts;
-    prefill_index_.reserve(instances_.size());
-    decode_index_.reserve(instances_.size());
+    prefill_index_.reserve(loaded_instances.size());
+    decode_index_.reserve(loaded_instances.size());
 
-    for (auto& ist : instances_) {
-      if (!create_channel(ist.first)) {
-        channel_creat_fail_insts.emplace_back(ist.first);
-      } else {
-        switch (ist.second.type) {
-          case InstanceType::DEFAULT:
-          case InstanceType::PREFILL:
-            ist.second.instance_index = prefill_index_.size();
-            prefill_index_.emplace_back(ist.first);
-            LOG(INFO) << "Register a new prefill instance, instance name : "
-                      << ist.first;
-            break;
-          case InstanceType::DECODE:
-            ist.second.instance_index = decode_index_.size();
-            decode_index_.emplace_back(ist.first);
-            LOG(INFO) << "Register a new decode instance, instance name : "
-                      << ist.first;
-            break;
-          case InstanceType::MIX:
-            // In the initial state, we set the first MIX type instance as a
-            // decode instance, while all subsequent instances are set as
-            // prefill instances.
-            if (decode_index_.size() > 0) {
-              ist.second.instance_index = prefill_index_.size();
-              ist.second.current_type = InstanceType::PREFILL;
-              prefill_index_.emplace_back(ist.first);
-              LOG(INFO) << "Register a new prefill instance, instance name : "
-                        << ist.first;
-            } else {
-              ist.second.instance_index = decode_index_.size();
-              ist.second.current_type = InstanceType::DECODE;
-              decode_index_.emplace_back(ist.first);
-              LOG(INFO) << "Register a new decode instance, instance name : "
-                        << ist.first;
-            }
-            break;
-          default:
-            LOG(WARNING) << "Unknown InstanceType: " << int(ist.second.type);
-            channel_creat_fail_insts.emplace_back(ist.first);
-            break;
-        }
-      }
-    }
-    for (auto& name : channel_creat_fail_insts) {
-      instances_.erase(name);
-      {
-        std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
-        std::lock_guard<std::mutex> request_metrics_lock(
-            request_metrics_mutex_);
-        time_predictors_.erase(name);
-        request_metrics_.erase(name);
+    for (auto& pair : loaded_instances) {
+      if (!register_instance(pair.first, pair.second)) {
+        LOG(ERROR) << "Fail to register instance: " << pair.first;
       }
     }
   }
@@ -398,137 +342,11 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
           continue;
         }
 
-        if (!create_channel(iter.first)) {
-          LOG(ERROR) << "create channel fail: " << iter.first;
-          continue;
-        }
-
-        {
-          std::lock_guard<std::mutex> time_predictor_lock(
-              time_predictor_mutex_);
-          std::lock_guard<std::mutex> request_metrics_lock(
-              request_metrics_mutex_);
-
-          // create ttft predictor for instance
-          time_predictors_.emplace(
-              iter.first,
-              TimePredictor(iter.second.ttft_profiling_data,
-                            iter.second.tpot_profiling_data));
-
-          // create request metrics for instance
-          request_metrics_.emplace(iter.first, RequestMetrics());
-        }
-
-        switch (iter.second.type) {
-          case InstanceType::DEFAULT:
-          case InstanceType::PREFILL:
-            iter.second.instance_index = prefill_index_.size();
-            prefill_index_.emplace_back(iter.first);
-            LOG(INFO) << "Register a new prefill instance, instance name : "
-                      << iter.first;
-            break;
-          case InstanceType::DECODE:
-            iter.second.instance_index = decode_index_.size();
-            decode_index_.emplace_back(iter.first);
-            LOG(INFO) << "Register a new decode instance, instance name : "
-                      << iter.first;
-            break;
-          case InstanceType::MIX:
-            // In the initial state, we set the first MIX type instance as a
-            // decode instance, while all subsequent instances are set as
-            // prefill instances.
-            if (decode_index_.size() > 0) {
-              iter.second.instance_index = prefill_index_.size();
-              iter.second.current_type = InstanceType::PREFILL;
-              prefill_index_.emplace_back(iter.first);
-              LOG(INFO) << "Register a new prefill instance, instance name : "
-                        << iter.first;
-            } else {
-              iter.second.instance_index = decode_index_.size();
-              iter.second.current_type = InstanceType::DECODE;
-              decode_index_.emplace_back(iter.first);
-              LOG(INFO) << "Register a new decode instance, instance name : "
-                        << iter.first;
-            }
-            break;
-          default:
-            LOG(WARNING) << "Unknown InstanceType: " << int(iter.second.type);
-            break;
-        }
-
-        instances_.insert(std::make_pair(iter.first, std::move(iter.second)));
+        register_instance(iter.first, iter.second);
       }
 
       for (auto& iter : delete_list) {
-        LOG(INFO) << "delete instance: " << iter;
-        if (instances_.find(iter) == instances_.end()) {
-          LOG(ERROR) << "Instance is already deleted, instance_name: " << iter;
-          continue;
-        }
-        // TODO: notify cache manager to clear expire cache
-        uint64_t index = instances_[iter].instance_index;
-
-        switch (instances_[iter].type) {
-          case InstanceType::DEFAULT:
-          case InstanceType::PREFILL:
-            if (index == -1 || index >= prefill_index_.size()) {
-              break;
-            }
-            std::swap(prefill_index_[index], prefill_index_.back());
-            instances_[prefill_index_[index]].instance_index = index;
-            prefill_index_.pop_back();
-            break;
-          case InstanceType::DECODE:
-            if (index == -1 || index >= decode_index_.size()) {
-              break;
-            }
-            std::swap(decode_index_[index], decode_index_.back());
-            instances_[decode_index_[index]].instance_index = index;
-            decode_index_.pop_back();
-            break;
-          case InstanceType::MIX:
-            if (index == -1) {
-              break;
-            }
-            if (instances_[iter].current_type == InstanceType::PREFILL) {
-              if (index >= prefill_index_.size()) {
-                break;
-              }
-              std::swap(prefill_index_[index], prefill_index_.back());
-              instances_[prefill_index_[index]].instance_index = index;
-              prefill_index_.pop_back();
-            } else {
-              if (index >= decode_index_.size()) {
-                break;
-              }
-              std::swap(decode_index_[index], decode_index_.back());
-              instances_[decode_index_[index]].instance_index = index;
-              decode_index_.pop_back();
-            }
-            break;
-          default:
-            LOG(WARNING) << "Unknown InstanceType: "
-                         << int(instances_[iter].type);
-            break;
-        }
-        scheduler_->clear_requests_on_failed_instance(iter,
-                                                      instances_[iter].type);
-
-        instances_.erase(iter);
-        cached_channels_.erase(iter);
-        {
-          std::lock_guard<std::mutex> time_predictor_lock(
-              time_predictor_mutex_);
-          std::lock_guard<std::mutex> request_metrics_lock(
-              request_metrics_mutex_);
-          time_predictors_.erase(iter);
-          request_metrics_.erase(iter);
-        }
-        {
-          std::lock_guard<std::mutex> lock(update_mutex_);
-          updated_metrics_.erase(iter);
-          removed_instance_.insert(iter);
-        }
+        deregister_instance(iter);
       }
     }
   });
@@ -779,15 +597,11 @@ void InstanceMgr::flip_prefill_to_decode(std::string& instance_name) {
   }
 
   // delete instance name from prefill_index_
-  uint64_t index = instances_[instance_name].instance_index;
-  std::swap(prefill_index_[index], prefill_index_.back());
-  instances_[prefill_index_[index]].instance_index = index;
-  prefill_index_.pop_back();
+  remove_instance_from_index(instance_name, instances_[instance_name]);
 
   // insert instance name to decode_index_
-  instances_[instance_name].instance_index = decode_index_.size();
   instances_[instance_name].current_type = InstanceType::DECODE;
-  decode_index_.emplace_back(instance_name);
+  add_instance_to_index(instance_name, instances_[instance_name]);
 
   LOG(INFO) << "Flip prefill to decode, instance name : " << instance_name;
 }
@@ -804,15 +618,11 @@ void InstanceMgr::flip_decode_to_prefill(std::string& instance_name) {
   }
 
   // delete instance name from decode_index_
-  uint64_t index = instances_[instance_name].instance_index;
-  std::swap(decode_index_[index], decode_index_.back());
-  instances_[decode_index_[index]].instance_index = index;
-  decode_index_.pop_back();
+  remove_instance_from_index(instance_name, instances_[instance_name]);
 
   // insert instance name to prefill_index
-  instances_[instance_name].instance_index = prefill_index_.size();
   instances_[instance_name].current_type = InstanceType::PREFILL;
-  prefill_index_.emplace_back(instance_name);
+  add_instance_to_index(instance_name, instances_[instance_name]);
 
   LOG(INFO) << "Flip decode to prefill, instance name : " << instance_name;
 }
@@ -827,6 +637,327 @@ TimePredictor& InstanceMgr::get_time_predictor(
                << instance_name;
   }
   return it->second;
+}
+
+bool InstanceMgr::call_link_instance(const std::string& target_rpc_addr,
+                                     const InstanceMetaInfo& peer_info) {
+  brpc::Channel channel;
+  brpc::ChannelOptions options;
+  options.protocol = "http";
+  options.timeout_ms = options_.timeout_ms();
+  options.max_retry = 3;
+  if (channel.Init(target_rpc_addr.c_str(), "", &options) != 0) {
+    LOG(ERROR) << "Fail to initialize channel for LinkInstance to "
+               << target_rpc_addr;
+    return false;
+  }
+  xllm::proto::DisaggPDService_Stub stub(&channel);
+  brpc::Controller cntl;
+  xllm::proto::InstanceClusterInfo req;
+  req.set_instance_name(peer_info.name);
+  for (auto& cluster_id : peer_info.cluster_ids) {
+    req.add_cluster_ids(cluster_id);
+  }
+  for (auto& addr : peer_info.addrs) {
+    req.add_addrs(addr);
+  }
+  for (auto& ip : peer_info.device_ips) {
+    req.add_device_ips(ip);
+  }
+  for (auto& port : peer_info.ports) {
+    req.add_ports(port);
+  }
+  req.set_dp_size(peer_info.dp_size);
+  xllm::proto::Status res;
+  stub.LinkInstance(&cntl, &req, &res, nullptr);
+  if (cntl.Failed()) {
+    LOG(ERROR) << "LinkInstance failed, target: " << target_rpc_addr
+               << ", peer: " << peer_info.name
+               << ", error: " << cntl.ErrorText();
+    return false;
+  }
+  return res.ok();
+}
+
+bool InstanceMgr::call_unlink_instance(const std::string& target_rpc_addr,
+                                       const InstanceMetaInfo& peer_info) {
+  brpc::Channel channel;
+  brpc::ChannelOptions options;
+  options.protocol = "http";
+  options.timeout_ms = options_.timeout_ms();
+  options.max_retry = 3;
+  if (channel.Init(target_rpc_addr.c_str(), "", &options) != 0) {
+    LOG(ERROR) << "Fail to initialize channel for UnlinkInstance to "
+               << target_rpc_addr;
+    return false;
+  }
+  xllm::proto::DisaggPDService_Stub stub(&channel);
+  brpc::Controller cntl;
+  xllm::proto::InstanceClusterInfo req;
+  req.set_instance_name(peer_info.name);
+  for (auto& cluster_id : peer_info.cluster_ids) {
+    req.add_cluster_ids(cluster_id);
+  }
+  for (auto& addr : peer_info.addrs) {
+    req.add_addrs(addr);
+  }
+  for (auto& ip : peer_info.device_ips) {
+    req.add_device_ips(ip);
+  }
+  for (auto& port : peer_info.ports) {
+    req.add_ports(port);
+  }
+  req.set_dp_size(peer_info.dp_size);
+  xllm::proto::Status res;
+  stub.UnlinkInstance(&cntl, &req, &res, nullptr);
+  if (cntl.Failed()) {
+    LOG(ERROR) << "UnlinkInstance failed, target: " << target_rpc_addr
+               << ", peer: " << peer_info.name
+               << ", error: " << cntl.ErrorText();
+    return false;
+  }
+  return res.ok();
+}
+
+bool InstanceMgr::register_instance(const std::string& name,
+                                    InstanceMetaInfo& info) {
+  if (!create_channel(name)) {
+    LOG(ERROR) << "create channel fail: " << name;
+    return false;
+  }
+
+  add_instance_resources(name, info);
+
+  if (!link_instance_internal(name, info)) {
+    remove_instance_resources(name);
+    return false;
+  }
+
+  add_instance_to_index(name, info);
+  instances_.insert(std::make_pair(name, info));
+  return true;
+}
+
+void InstanceMgr::deregister_instance(const std::string& name) {
+  auto it = instances_.find(name);
+  if (it == instances_.end()) {
+    LOG(ERROR) << "Instance is not registered, instance_name: " << name;
+    return;
+  }
+
+  const auto& info = it->second;
+  unlink_instance_internal(name, info);
+  remove_instance_from_index(name, info);
+
+  scheduler_->clear_requests_on_failed_instance(name, info.type);
+
+  remove_instance_resources(name);
+  instances_.erase(it);
+  LOG(INFO) << "delete instance: " << name;
+}
+
+void InstanceMgr::add_instance_resources(const std::string& name,
+                                         const InstanceMetaInfo& info) {
+  std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
+  std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+
+  time_predictors_.insert_or_assign(
+      name, TimePredictor(info.ttft_profiling_data, info.tpot_profiling_data));
+
+  request_metrics_.insert_or_assign(name, RequestMetrics());
+}
+
+void InstanceMgr::remove_instance_resources(const std::string& name) {
+  cached_channels_.erase(name);
+  {
+    std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
+    std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+    time_predictors_.erase(name);
+    request_metrics_.erase(name);
+  }
+  {
+    std::lock_guard<std::mutex> lock(update_mutex_);
+    updated_metrics_.erase(name);
+    removed_instance_.insert(name);
+  }
+  {
+    std::unique_lock<std::shared_mutex> lock(load_metric_mutex_);
+    load_metrics_.erase(name);
+  }
+}
+
+bool InstanceMgr::link_instance_internal(const std::string& name,
+                                         InstanceMetaInfo& info) {
+  bool link_ok = true;
+  int32_t linked_p_count = 0;
+  int32_t linked_d_count = 0;
+
+  switch (info.type) {
+    case InstanceType::DEFAULT:
+      break;
+    case InstanceType::PREFILL: {
+      for (auto& d_name : decode_index_) {
+        if (!call_link_instance(info.rpc_address, instances_[d_name])) {
+          link_ok = false;
+          break;
+        }
+        linked_d_count++;
+      }
+      break;
+    }
+    case InstanceType::DECODE: {
+      for (auto& p_name : prefill_index_) {
+        if (!call_link_instance(info.rpc_address, instances_[p_name])) {
+          link_ok = false;
+          break;
+        }
+        linked_p_count++;
+      }
+      break;
+    }
+    case InstanceType::MIX: {
+      for (auto& p_name : prefill_index_) {
+        if (!call_link_instance(info.rpc_address, instances_[p_name]) ||
+            !call_link_instance(instances_[p_name].rpc_address, info)) {
+          link_ok = false;
+          break;
+        }
+        linked_p_count++;
+      }
+      if (link_ok) {
+        for (auto& d_name : decode_index_) {
+          if (!call_link_instance(info.rpc_address, instances_[d_name]) ||
+              !call_link_instance(instances_[d_name].rpc_address, info)) {
+            link_ok = false;
+            break;
+          }
+          linked_d_count++;
+        }
+      }
+      break;
+    }
+    default:
+      LOG(WARNING) << "Unknown InstanceType: " << int(info.type);
+      return false;
+  }
+
+  if (!link_ok) {
+    LOG(ERROR) << "Fail to link instance during registration, instance: "
+               << name;
+    // Rollback
+    if (info.type == InstanceType::PREFILL) {
+      for (int i = 0; i < linked_d_count; i++) {
+        call_unlink_instance(info.rpc_address, instances_[decode_index_[i]]);
+      }
+    } else if (info.type == InstanceType::DECODE) {
+      for (int i = 0; i < linked_p_count; i++) {
+        call_unlink_instance(info.rpc_address, instances_[prefill_index_[i]]);
+      }
+    } else if (info.type == InstanceType::MIX) {
+      for (int i = 0; i < linked_p_count; i++) {
+        call_unlink_instance(info.rpc_address, instances_[prefill_index_[i]]);
+        call_unlink_instance(instances_[prefill_index_[i]].rpc_address, info);
+      }
+      for (int i = 0; i < linked_d_count; i++) {
+        call_unlink_instance(info.rpc_address, instances_[decode_index_[i]]);
+        call_unlink_instance(instances_[decode_index_[i]].rpc_address, info);
+      }
+    }
+    return false;
+  }
+
+  return true;
+}
+
+void InstanceMgr::unlink_instance_internal(const std::string& name,
+                                           const InstanceMetaInfo& info) {
+  if (info.type == InstanceType::PREFILL) {
+    for (auto& d_name : decode_index_) {
+      call_unlink_instance(instances_[d_name].rpc_address, info);
+    }
+  } else if (info.type == InstanceType::DECODE) {
+    for (auto& p_name : prefill_index_) {
+      call_unlink_instance(instances_[p_name].rpc_address, info);
+    }
+  } else if (info.type == InstanceType::MIX) {
+    for (auto& p_name : prefill_index_) {
+      if (p_name == name) continue;
+      call_unlink_instance(instances_[p_name].rpc_address, info);
+    }
+    for (auto& d_name : decode_index_) {
+      if (d_name == name) continue;
+      call_unlink_instance(instances_[d_name].rpc_address, info);
+    }
+  }
+}
+
+void InstanceMgr::add_instance_to_index(const std::string& name,
+                                        InstanceMetaInfo& info) {
+  switch (info.type) {
+    case InstanceType::DEFAULT:
+      info.instance_index = prefill_index_.size();
+      prefill_index_.emplace_back(name);
+      LOG(INFO) << "Register a new default instance, instance name : " << name;
+      break;
+    case InstanceType::PREFILL:
+      info.instance_index = prefill_index_.size();
+      prefill_index_.emplace_back(name);
+      LOG(INFO) << "Register a new prefill instance, instance name : " << name;
+      break;
+    case InstanceType::DECODE:
+      info.instance_index = decode_index_.size();
+      decode_index_.emplace_back(name);
+      LOG(INFO) << "Register a new decode instance, instance name : " << name;
+      break;
+    case InstanceType::MIX:
+      if (decode_index_.size() > 0) {
+        info.instance_index = prefill_index_.size();
+        info.current_type = InstanceType::PREFILL;
+        prefill_index_.emplace_back(name);
+        LOG(INFO) << "Register a new prefill instance, instance name : "
+                  << name;
+      } else {
+        info.instance_index = decode_index_.size();
+        info.current_type = InstanceType::DECODE;
+        decode_index_.emplace_back(name);
+        LOG(INFO) << "Register a new decode instance, instance name : " << name;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+void InstanceMgr::remove_instance_from_index(const std::string& name,
+                                             const InstanceMetaInfo& info) {
+  uint64_t index = info.instance_index;
+  if (index == -1) return;
+
+  auto remove_from_vec = [&](std::vector<std::string>& vec) {
+    if (index >= vec.size()) return;
+    std::swap(vec[index], vec.back());
+    instances_[vec[index]].instance_index = index;
+    vec.pop_back();
+  };
+
+  switch (info.type) {
+    case InstanceType::DEFAULT:
+    case InstanceType::PREFILL:
+      remove_from_vec(prefill_index_);
+      break;
+    case InstanceType::DECODE:
+      remove_from_vec(decode_index_);
+      break;
+    case InstanceType::MIX:
+      if (info.current_type == InstanceType::PREFILL) {
+        remove_from_vec(prefill_index_);
+      } else {
+        remove_from_vec(decode_index_);
+      }
+      break;
+    default:
+      break;
+  }
 }
 
 }  // namespace xllm_service
