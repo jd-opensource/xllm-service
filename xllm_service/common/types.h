@@ -176,6 +176,9 @@ struct InstanceMetaInfo {
   std::vector<uint64_t> k_cache_ids;
   std::vector<uint64_t> v_cache_ids;
   int32_t dp_size;
+  // device network info
+  std::vector<std::string> device_ips;
+  std::vector<uint16_t> ports;
   // ttft profiling data
   std::vector<std::pair<int32_t, double>> ttft_profiling_data;
   // tpot profiling data
@@ -200,6 +203,8 @@ struct InstanceMetaInfo {
     json_val["k_cache_ids"] = k_cache_ids;
     json_val["v_cache_ids"] = v_cache_ids;
     json_val["dp_size"] = dp_size;
+    json_val["device_ips"] = device_ips;
+    json_val["ports"] = ports;
     json_val["ttft_profiling_data"] = ttft_profiling_data;
     json_val["tpot_profiling_data"] = tpot_profiling_data;
     return json_val;
@@ -235,6 +240,8 @@ struct InstanceMetaInfo {
       }
 
       dp_size = json_value.at("dp_size").get<int32_t>();
+      device_ips = json_value.at("device_ips").get<std::vector<std::string>>();
+      ports = json_value.at("ports").get<std::vector<uint16_t>>();
 
       for (const auto& item : json_value.at("ttft_profiling_data")) {
         if (item.is_array() && item.size() == 2) {
