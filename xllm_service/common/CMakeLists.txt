@@ -16,6 +16,8 @@ cc_library(
     types.h
     utils.h
     hash_util.h
+    timer.h
+    metrics.h
     xllm/output.h
     xllm/status.h
     xllm/uuid.h
@@ -26,6 +28,8 @@ cc_library(
     time_predictor.cpp
     utils.cpp
     hash_util.cpp
+    timer.cpp
+    metrics.cpp
     xllm/uuid.cpp
   DEPS
     absl::random_random
