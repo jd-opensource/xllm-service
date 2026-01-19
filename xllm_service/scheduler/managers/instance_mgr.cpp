@@ -797,7 +797,7 @@ bool InstanceMgr::link_instance_internal(const std::string& name,
       break;
     case InstanceType::PREFILL: {
       for (auto& d_name : decode_index_) {
-        if (!call_link_instance(info.rpc_address, instances_[d_name])) {
+        if (!call_link_instance(instances_[d_name].rpc_address, info)) {
           link_ok = false;
           break;
         }
@@ -847,7 +847,7 @@ bool InstanceMgr::link_instance_internal(const std::string& name,
     // Rollback
     if (info.type == InstanceType::PREFILL) {
       for (int i = 0; i < linked_d_count; i++) {
-        call_unlink_instance(info.rpc_address, instances_[decode_index_[i]]);
+        call_unlink_instance(instances_[decode_index_[i]].rpc_address, info);
       }
     } else if (info.type == InstanceType::DECODE) {
       for (int i = 0; i < linked_p_count; i++) {
