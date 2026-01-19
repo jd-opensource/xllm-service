@@ -408,6 +408,11 @@ void InstanceMgr::update_latency_metrics(
 
 void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
                                          RequestAction action) {
+  // skip request metrics update if policy is not SLO_AWARE
+  if (options_.load_balance_policy() != "SLO_AWARE") {
+    return;
+  }
+
   std::lock_guard<std::mutex> lock(request_metrics_mutex_);
 
   auto prefill_it = request_metrics_.find(request->routing.prefill_name);
@@ -475,8 +480,7 @@ void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
       break;
   }
 
-  if (options_.load_balance_policy() == "SLO_AWARE" &&
-      decode_it->second.decode_request_num == 0) {
+  if (decode_it->second.decode_request_num == 0) {
     std::unique_lock<std::shared_mutex> instance_lock(inst_mutex_);
     flip_decode_to_prefill(request->routing.decode_name);
   }
