@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "scheduler/scheduler.h"
 
+#include "common/metrics.h"
 #include "common/xllm/status.h"
 #include "loadbalance_policy/cache_aware_routing.h"
 #include "loadbalance_policy/round_robin.h"
@@ -178,6 +179,9 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
                  << request->service_request_id;
       return false;
     }
+
+    request->latest_generate_time = absl::Now();
+
     request->output_callback =
         [this,
          call_data,
@@ -185,7 +189,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
          stream = request->stream,
          include_usage = request->include_usage,
          service_request_id = request->service_request_id,
-         created_time = absl::ToUnixSeconds(absl::Now())](
+         created_time = absl::ToUnixSeconds(request->latest_generate_time)](
             const llm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
         const auto& status = req_output.status.value();
@@ -203,6 +207,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
           call_data, created_time, model, req_output);
     };
     requests_.emplace(request->service_request_id, request);
+    COUNTER_INC(server_request_in_total);
   }
 
   {
@@ -227,6 +232,9 @@ bool Scheduler::record_new_request(
                  << request->service_request_id;
       return false;
     }
+
+    request->latest_generate_time = absl::Now();
+
     request->output_callback =
         [this,
          call_data,
@@ -234,7 +242,7 @@ bool Scheduler::record_new_request(
          stream = request->stream,
          include_usage = request->include_usage,
          service_request_id = request->service_request_id,
-         created_time = absl::ToUnixSeconds(absl::Now())](
+         created_time = absl::ToUnixSeconds(request->latest_generate_time)](
             const llm::RequestOutput& req_output) mutable -> bool {
       if (req_output.status.has_value()) {
         const auto& status = req_output.status.value();
@@ -252,6 +260,7 @@ bool Scheduler::record_new_request(
           call_data, created_time, model, req_output);
     };
     requests_.emplace(request->service_request_id, request);
+    COUNTER_INC(server_request_in_total);
   }
 
   {
@@ -332,6 +341,9 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
     // update instance request metrics
     it->second->num_generated_tokens += 1;
     instance_mgr_->update_request_metrics(it->second, RequestAction::GENERATE);
+
+    // update token latency metrics
+    update_token_latency_metrics_for_decode(it->second);
   }
 
   size_t req_thread_idx = -1;
@@ -371,6 +383,29 @@ void Scheduler::update_request_metrics_for_prefill(
     instance_mgr_->update_request_metrics(it->second,
                                           RequestAction::FINISH_PREFILL);
   }
+}
+
+void Scheduler::update_token_latency_metrics_for_prefill(
+    const std::string& service_request_id) {
+  std::lock_guard<std::mutex> guard(request_mutex_);
+  auto it = requests_.find(service_request_id);
+  if (it != requests_.end()) {
+    int64_t tbt_milliseconds = absl::ToInt64Milliseconds(
+        absl::Now() - it->second->latest_generate_time);
+    it->second->latest_generate_time = absl::Now();
+
+    HISTOGRAM_OBSERVE(time_to_first_token_latency_milliseconds,
+                      tbt_milliseconds);
+  }
+}
+
+void Scheduler::update_token_latency_metrics_for_decode(
+    std::shared_ptr<Request> request) {
+  int64_t tbt_milliseconds =
+      absl::ToInt64Milliseconds(absl::Now() - request->latest_generate_time);
+  request->latest_generate_time = absl::Now();
+
+  HISTOGRAM_OBSERVE(inter_token_latency_milliseconds, tbt_milliseconds);
 }
 
 }  // namespace xllm_service

@@ -15,6 +15,8 @@ limitations under the License.
 
 #pragma once
 
+#include <absl/time/time.h>
+
 #include "chat_template/jinja_chat_template.h"
 #include "common/types.h"
 #include "common/xllm/output.h"
@@ -63,6 +65,9 @@ struct Request {
 
   // trace callback
   std::function<void(const std::string&)> trace_callback = nullptr;
+
+  // latest token generate time
+  absl::Time latest_generate_time;
 };
 
 }  // namespace xllm_service

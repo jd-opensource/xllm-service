@@ -104,3 +104,8 @@ class AutoCounter final {
   extern bvar::MultiDimension<bvar::LatencyRecorder> MULTI_HISTOGRAM_##name;
 
 // NOLINTEND(bugprone-macro-parentheses)
+
+DECLARE_COUNTER(server_request_in_total);
+
+DECLARE_HISTOGRAM(time_to_first_token_latency_milliseconds);
+DECLARE_HISTOGRAM(inter_token_latency_milliseconds);

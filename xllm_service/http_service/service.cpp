@@ -123,6 +123,9 @@ void handle_first_response(brpc::Controller* cntl,
   // non-stream, all error in prefill instance will be handled through
   // cntrl->setFailed()
 
+  // update token latency metrics
+  scheduler->update_token_latency_metrics_for_prefill(service_request_id);
+
   // update request metrics for prefill finished request
   scheduler->update_request_metrics_for_prefill(service_request_id);
 }

@@ -73,6 +73,12 @@ class Scheduler final {
   void update_request_metrics_for_prefill(
       const std::string& service_request_id);
 
+  // update token latency metrics
+  void update_token_latency_metrics_for_prefill(
+      const std::string& service_request_id);
+  void update_token_latency_metrics_for_decode(
+      std::shared_ptr<Request> request);
+
  private:
   DISALLOW_COPY_AND_ASSIGN(Scheduler);
 
