@@ -14,3 +14,13 @@ limitations under the License.
 ==============================================================================*/
 
 #include "metrics.h"
+
+DEFINE_COUNTER(server_request_in_total,
+               "Total number of request that server received");
+
+// ttft latency histogram
+DEFINE_HISTOGRAM(time_to_first_token_latency_milliseconds,
+                 "Histogram of time to first token latency in milliseconds");
+// inter token latency histogram
+DEFINE_HISTOGRAM(inter_token_latency_milliseconds,
+                 "Histogram of inter token latency in milliseconds");
