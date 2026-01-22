@@ -182,6 +182,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
 
     request->latest_generate_time = absl::Now();
 
+    request->call_data = call_data;
     request->output_callback =
         [this,
          call_data,
@@ -237,6 +238,7 @@ bool Scheduler::record_new_request(
 
     request->latest_generate_time = absl::Now();
 
+    request->call_data = call_data;
     request->output_callback =
         [this,
          call_data,
@@ -345,8 +347,22 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
                  << service_request_id;
       return false;
     }
-    cb = it->second->output_callback;
     auto& request = it->second;
+    cb = request->output_callback;
+
+    // check client connection
+    if (request->call_data->is_disconnected()) {
+      LOG(INFO) << "Client has disconnected and the request will be cancelled, "
+                   "request id: "
+                << service_request_id;
+      instance_mgr_->update_request_metrics(request, RequestAction::CANCEL);
+      requests_.erase(it);
+      {
+        std::lock_guard<std::mutex> guard(thread_map_mutex_);
+        remote_requests_output_thread_map_.erase(service_request_id);
+      }
+      return false;
+    }
 
     if (!status_error) {
       // no error, update instance request metrics
