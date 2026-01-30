@@ -70,10 +70,12 @@ class StreamCallData : public CallData {
       brpc::Controller* controller,
       bool stream,
       ::google::protobuf::Closure* done,
+      Request* request,
       Response* response,
       std::function<void(const std::string&)> trace_callback = nullptr)
       : controller_(controller),
         done_(done),
+        request_(request),
         response_(response),
         trace_callback_(std::move(trace_callback)) {
     stream_ = stream;
@@ -200,6 +202,7 @@ class StreamCallData : public CallData {
     return true;
   }
 
+  Request& request() { return *request_; }
   Response& response() { return *response_; }
   ::google::protobuf::Closure* done() { return done_; }
   bool finished() { return finished_; }
@@ -208,7 +211,8 @@ class StreamCallData : public CallData {
   brpc::Controller* controller_;
   ::google::protobuf::Closure* done_;
 
-  Response* response_;
+  Request* request_ = nullptr;
+  Response* response_ = nullptr;
 
   bool stream_ = false;
   butil::intrusive_ptr<brpc::ProgressiveAttachment> pa_;

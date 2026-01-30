@@ -82,11 +82,13 @@ class XllmHttpServiceImpl : public proto::XllmHttpService {
               std::shared_ptr<Request> request,
               const std::string& method);
 
-  void get_serving(const std::string& serving_method,
-                   ::google::protobuf::RpcController* controller,
-                   const proto::HttpRequest* request,
-                   proto::HttpResponse* response,
-                   ::google::protobuf::Closure* done);
+  template <typename T>
+  void handle(std::shared_ptr<T> call_data, std::shared_ptr<Request> request);
+
+  void get_serving_models(::google::protobuf::RpcController* controller,
+                          const proto::HttpRequest* request,
+                          proto::HttpResponse* response,
+                          ::google::protobuf::Closure* done);
 
  private:
   Options options_;
