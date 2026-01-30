@@ -67,17 +67,16 @@ class Scheduler final {
                                          InstanceType type);
 
   // handle generations from prefill/decode instance
-  bool handle_generation(const llm::RequestOutput& request_output);
+  bool handle_generation(const llm::RequestOutput& request_output,
+                         bool finished_on_prefill_instance);
 
   // update request metrics for prefill finished request
-  void update_request_metrics_for_prefill(
-      const std::string& service_request_id);
+  void update_request_metrics(std::shared_ptr<Request> request,
+                              bool finished_on_prefill_instance);
 
   // update token latency metrics
-  void update_token_latency_metrics_for_prefill(
-      const std::string& service_request_id);
-  void update_token_latency_metrics_for_decode(
-      std::shared_ptr<Request> request);
+  void update_token_latency_metrics(std::shared_ptr<Request> request,
+                                    bool finished_on_prefill_instance);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Scheduler);
