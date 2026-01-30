@@ -107,6 +107,9 @@ struct RequestOutput {
 
   // whether the request is finished.
   bool finished = false;
+
+  // whether the prefill stage is finished on prefill_instance.
+  bool finished_on_prefill_instance = false;
 };
 
 inline std::optional<std::string> to_string(FinishReason reason) {

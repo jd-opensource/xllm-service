@@ -70,14 +70,12 @@ class Scheduler final {
   bool handle_generation(const llm::RequestOutput& request_output);
 
   // update request metrics for prefill finished request
-  void update_request_metrics_for_prefill(
-      const std::string& service_request_id);
+  void update_request_metrics(std::shared_ptr<Request> request,
+                              bool finished_on_prefill_instance);
 
   // update token latency metrics
-  void update_token_latency_metrics_for_prefill(
-      const std::string& service_request_id);
-  void update_token_latency_metrics_for_decode(
-      std::shared_ptr<Request> request);
+  void update_token_latency_metrics(std::shared_ptr<Request> request,
+                                    bool finished_on_prefill_instance);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Scheduler);
