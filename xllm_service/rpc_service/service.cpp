@@ -52,8 +52,10 @@ std::vector<std::string> XllmRpcServiceImpl::get_static_prefill_list(
 }
 
 bool XllmRpcServiceImpl::handle_generation(
-    const llm::RequestOutput& request_output) {
-  return scheduler_->handle_generation(request_output);
+    const llm::RequestOutput& request_output,
+    bool finished_on_prefill_instance) {
+  return scheduler_->handle_generation(request_output,
+                                       finished_on_prefill_instance);
 }
 
 XllmRpcService::XllmRpcService(const Options& options, Scheduler* scheduler) {
@@ -153,6 +155,7 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
 
   // TODO: use threadpool here
   //
+  bool finished_on_prefill_instance = false;
   for (auto& request : req->gens()) {
     // convert proto request to `RequestOutput`
     llm::RequestOutput request_output;
@@ -170,6 +173,9 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
       u.num_total_tokens = request.usage().num_total_tokens();
       request_output.usage = std::move(u);
     }
+    request_output.finished_on_prefill_instance =
+        request.finished_on_prefill_instance();
+    finished_on_prefill_instance = request.finished_on_prefill_instance();
     request_output.finished = request.finished();
     for (auto& output : request.outputs()) {
       llm::SequenceOutput sequence_output;
@@ -206,8 +212,10 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
       }
       request_output.outputs.emplace_back(std::move(sequence_output));
     }
+
     resp->mutable_all_status()->Add()->set_ok(
-        xllm_rpc_service_impl_->handle_generation(request_output));
+        xllm_rpc_service_impl_->handle_generation(
+            request_output, finished_on_prefill_instance));
   }
 }
 

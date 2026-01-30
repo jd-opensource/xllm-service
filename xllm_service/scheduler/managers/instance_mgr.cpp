@@ -286,7 +286,7 @@ bool InstanceMgr::create_channel(const std::string& instance_name) {
     auto channel = std::make_shared<brpc::Channel>();
     brpc::ChannelOptions options;
     // Add to params
-    options.protocol = "http";
+    // options.protocol = "http";
     options.timeout_ms = options_.timeout_ms(); /*milliseconds*/
     options.max_retry = 3;
     options.connect_timeout_ms = options_.connect_timeout_ms();
