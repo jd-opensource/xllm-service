@@ -352,6 +352,7 @@ void XllmHttpServiceImpl::Completions(
 
   // update request protobuf
   req_pb->set_service_request_id(service_request->service_request_id);
+  req_pb->set_source_xservice_addr(options_.service_name());
   req_pb->mutable_token_ids()->Add(service_request->token_ids.begin(),
                                    service_request->token_ids.end());
   req_pb->mutable_routing()->set_prefill_name(
@@ -423,6 +424,7 @@ void XllmHttpServiceImpl::ChatCompletions(
 
   // update request protobuf
   req_pb->set_service_request_id(service_request->service_request_id);
+  req_pb->set_source_xservice_addr(options_.service_name());
   req_pb->mutable_token_ids()->Add(service_request->token_ids.begin(),
                                    service_request->token_ids.end());
   req_pb->mutable_routing()->set_prefill_name(

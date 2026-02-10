@@ -84,8 +84,13 @@ class Scheduler final {
 
   void update_master_service_heartbeat();
 
+  bool register_current_service();
+
   void handle_master_service_watch(const etcd::Response& response,
                                    const uint64_t& prefix_len);
+
+  void handle_xservice_watch(const etcd::Response& response,
+                             const uint64_t& prefix_len);
 
   Tokenizer* get_tls_tokenizer();
 

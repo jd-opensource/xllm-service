@@ -26,6 +26,8 @@ namespace {
 constexpr int32_t kHeartbeatInterval = 3;  // in seconds
 
 std::string ETCD_MASTER_SERVICE_KEY = "XLLM:SERVICE:MASTER";
+std::string ETCD_XSERVICE_KEY_PREFIX = "XLLM:SERVICE:";
+std::string ETCD_MASTER_SERVICE_NAME = "MASTER";
 }  // namespace
 
 namespace xllm_service {
@@ -36,13 +38,26 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
   chat_template_ = std::make_unique<JinjaChatTemplate>(tokenizer_args_);
 
   etcd_client_ = std::make_shared<EtcdClient>(options_.etcd_addr());
+
+  if (!register_current_service()) {
+    LOG(FATAL)
+        << "Failed to register current xllm_service in etcd, service_name: "
+        << options_.service_name();
+  }
+
+  auto handle_xservice = std::bind(&Scheduler::handle_xservice_watch,
+                                   this,
+                                   std::placeholders::_1,
+                                   std::placeholders::_2);
+  etcd_client_->add_watch(ETCD_XSERVICE_KEY_PREFIX, handle_xservice);
+
   if (!etcd_client_->get(ETCD_MASTER_SERVICE_KEY, nullptr)) {
     is_master_service_ = etcd_client_->set(
         ETCD_MASTER_SERVICE_KEY, options_.service_name(), kHeartbeatInterval);
     LOG(INFO) << "Set current service as master!";
   }
 
-  instance_mgr_ = std::make_unique<InstanceMgr>(
+  instance_mgr_ = std::make_shared<InstanceMgr>(
       options, etcd_client_, is_master_service_, this);
 
   global_kvcache_mgr_ = std::make_shared<GlobalKVCacheMgr>(
@@ -121,6 +136,22 @@ void Scheduler::update_master_service_heartbeat() {
   }
 }
 
+bool Scheduler::register_current_service() {
+  const std::string service_key =
+      ETCD_XSERVICE_KEY_PREFIX + options_.service_name();
+
+  if (etcd_client_->set(
+          service_key, options_.service_name(), kHeartbeatInterval)) {
+    return true;
+  }
+
+  LOG(ERROR) << "Service key already exists, registration failed: "
+             << service_key
+             << ". Please ensure service_name is unique across xllm_service "
+                "instances.";
+  return false;
+}
+
 void Scheduler::handle_instance_heartbeat(const proto::HeartbeatRequest* req) {
   if (exited_) {
     return;
@@ -146,6 +177,46 @@ void Scheduler::handle_master_service_watch(const etcd::Response& response,
 
     global_kvcache_mgr_->set_as_master();
     instance_mgr_->set_as_master();
+  }
+}
+
+void Scheduler::handle_xservice_watch(const etcd::Response& response,
+                                      const uint64_t& prefix_len) {
+  if (exited_ || response.events().empty()) {
+    return;
+  }
+
+  for (const auto& event : response.events()) {
+    if (event.event_type() != etcd::Event::EventType::DELETE_) {
+      continue;
+    }
+
+    std::string deleted_service;
+    if (event.has_prev_kv()) {
+      deleted_service = event.prev_kv().key().substr(prefix_len);
+    } else if (event.has_kv()) {
+      deleted_service = event.kv().key().substr(prefix_len);
+    }
+
+    if (deleted_service.empty()) {
+      continue;
+    }
+
+    if (deleted_service == options_.service_name()) {
+      LOG(INFO) << "Current xllm_service registration expired, re-registering";
+      register_current_service();
+      continue;
+    }
+
+    if (deleted_service == ETCD_MASTER_SERVICE_NAME) {
+      continue;
+    }
+
+    if (!is_master_service_) {
+      continue;
+    }
+
+    LOG(INFO) << "Detected xllm_service offline: " << deleted_service;
   }
 }
 
