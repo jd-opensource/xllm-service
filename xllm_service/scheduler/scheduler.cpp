@@ -253,6 +253,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
 
     request->latest_generate_time = absl::Now();
 
+    request->call_data = call_data;
     request->output_callback =
         [this,
          call_data,
@@ -272,10 +273,12 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
       if (stream) {
         return response_handler_.send_delta_to_client(
             call_data, include_usage, created_time, model, req_output);
+      } else if (!req_output.finished_on_prefill_instance) {
+        // for non-stream request, only send final result from decode instance
+        return response_handler_.send_result_to_client(
+            call_data, created_time, model, req_output);
       }
-
-      return response_handler_.send_result_to_client(
-          call_data, created_time, model, req_output);
+      return true;
     };
     requests_.emplace(request->service_request_id, request);
     COUNTER_INC(server_request_in_total);
@@ -306,6 +309,7 @@ bool Scheduler::record_new_request(
 
     request->latest_generate_time = absl::Now();
 
+    request->call_data = call_data;
     request->output_callback =
         [this,
          call_data,
@@ -325,10 +329,12 @@ bool Scheduler::record_new_request(
       if (stream) {
         return response_handler_.send_delta_to_client(
             call_data, include_usage, created_time, model, req_output);
+      } else if (!req_output.finished_on_prefill_instance) {
+        // for non-stream request, only send final result from decode instance
+        return response_handler_.send_result_to_client(
+            call_data, created_time, model, req_output);
       }
-
-      return response_handler_.send_result_to_client(
-          call_data, created_time, model, req_output);
+      return true;
     };
     requests_.emplace(request->service_request_id, request);
     COUNTER_INC(server_request_in_total);
@@ -396,7 +402,12 @@ void Scheduler::clear_requests_on_failed_instance(
 }
 
 bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
+  bool finished_on_prefill_instance =
+      request_output.finished_on_prefill_instance;
   const std::string& service_request_id = request_output.service_request_id;
+  bool status_error =
+      request_output.status.has_value() && !request_output.status.value().ok();
+
   OutputCallback cb;
   {
     std::lock_guard<std::mutex> guard(request_mutex_);
@@ -407,14 +418,28 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
                  << service_request_id;
       return false;
     }
-    cb = it->second->output_callback;
+    auto& request = it->second;
+    cb = request->output_callback;
 
-    // update instance request metrics
-    it->second->num_generated_tokens += 1;
-    instance_mgr_->update_request_metrics(it->second, RequestAction::GENERATE);
+    // check client connection
+    if (request->call_data->is_disconnected()) {
+      LOG(INFO) << "Client has disconnected and the request will be cancelled, "
+                   "request id: "
+                << service_request_id;
+      instance_mgr_->update_request_metrics(request, RequestAction::CANCEL);
+      requests_.erase(it);
+      {
+        std::lock_guard<std::mutex> guard(thread_map_mutex_);
+        remote_requests_output_thread_map_.erase(service_request_id);
+      }
+      return false;
+    }
 
-    // update token latency metrics
-    update_token_latency_metrics_for_decode(it->second);
+    if (!status_error) {
+      // no error, update instance request metrics
+      update_request_metrics(request, finished_on_prefill_instance);
+      update_token_latency_metrics(request, finished_on_prefill_instance);
+    }
   }
 
   size_t req_thread_idx = -1;
@@ -434,49 +459,47 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
       [this,
        service_request_id,
        cb,
+       status_error,
        request_output = std::move(request_output)]() mutable {
-        if (!cb(request_output) || request_output.finished) {
+        if (!cb(request_output) || status_error) {
+          finish_request(service_request_id, true);
+          return;
+        }
+        if (request_output.finished) {
           finish_request(service_request_id);
+          return;
         }
       });
 
   return true;
 }
 
-void Scheduler::update_request_metrics_for_prefill(
-    const std::string& service_request_id) {
-  std::lock_guard<std::mutex> guard(request_mutex_);
-  auto it = requests_.find(service_request_id);
-  if (it != requests_.end()) {
-    it->second->prefill_stage_finished = true;
-    it->second->num_generated_tokens += 1;
+void Scheduler::update_request_metrics(std::shared_ptr<Request> request,
+                                       bool finished_on_prefill_instance) {
+  request->num_generated_tokens += 1;
+  if (finished_on_prefill_instance) {
+    request->prefill_stage_finished = true;
     // update instance request metrics for prefill finished request
-    instance_mgr_->update_request_metrics(it->second,
+    instance_mgr_->update_request_metrics(request,
                                           RequestAction::FINISH_PREFILL);
+  } else {
+    // update instance request metrics
+    instance_mgr_->update_request_metrics(request, RequestAction::GENERATE);
   }
 }
 
-void Scheduler::update_token_latency_metrics_for_prefill(
-    const std::string& service_request_id) {
-  std::lock_guard<std::mutex> guard(request_mutex_);
-  auto it = requests_.find(service_request_id);
-  if (it != requests_.end()) {
-    int64_t tbt_milliseconds = absl::ToInt64Milliseconds(
-        absl::Now() - it->second->latest_generate_time);
-    it->second->latest_generate_time = absl::Now();
-
-    HISTOGRAM_OBSERVE(time_to_first_token_latency_milliseconds,
-                      tbt_milliseconds);
-  }
-}
-
-void Scheduler::update_token_latency_metrics_for_decode(
-    std::shared_ptr<Request> request) {
+void Scheduler::update_token_latency_metrics(
+    std::shared_ptr<Request> request,
+    bool finished_on_prefill_instance) {
   int64_t tbt_milliseconds =
       absl::ToInt64Milliseconds(absl::Now() - request->latest_generate_time);
   request->latest_generate_time = absl::Now();
-
-  HISTOGRAM_OBSERVE(inter_token_latency_milliseconds, tbt_milliseconds);
+  if (finished_on_prefill_instance) {
+    HISTOGRAM_OBSERVE(time_to_first_token_latency_milliseconds,
+                      tbt_milliseconds);
+  } else {
+    HISTOGRAM_OBSERVE(inter_token_latency_milliseconds, tbt_milliseconds);
+  }
 }
 
 }  // namespace xllm_service

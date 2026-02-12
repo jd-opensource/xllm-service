@@ -38,6 +38,8 @@ class CallData {
   // returns false if the call data is finished and can be deleted
   virtual bool proceed(bool rpc_ok) = 0;
 
+  virtual bool is_disconnected() const = 0;
+
   void get_x_request_id(std::string& x_request_id, brpc::Controller* ctrl) {
     x_request_id = "";
     if (ctrl->http_request().GetHeader("x-request-id")) {
@@ -70,10 +72,12 @@ class StreamCallData : public CallData {
       brpc::Controller* controller,
       bool stream,
       ::google::protobuf::Closure* done,
+      Request* request,
       Response* response,
       std::function<void(const std::string&)> trace_callback = nullptr)
       : controller_(controller),
         done_(done),
+        request_(request),
         response_(response),
         trace_callback_(std::move(trace_callback)) {
     stream_ = stream;
@@ -153,7 +157,7 @@ class StreamCallData : public CallData {
       attachment_iobuf.copy_to(&str);
       trace_callback_(str);
     }
-    pa_->Write(attachment_iobuf);
+    connection_status_ |= pa_->Write(attachment_iobuf);
     return true;
   }
 
@@ -162,7 +166,7 @@ class StreamCallData : public CallData {
     if (trace_callback_) trace_callback_(attachment);
     io_buf_.clear();
     io_buf_.append(attachment);
-    pa_->Write(io_buf_);
+    connection_status_ |= pa_->Write(io_buf_);
     if (attachment.find("data: [DONE]") != std::string::npos) {
       finished_ = true;
     }
@@ -188,7 +192,7 @@ class StreamCallData : public CallData {
       trace_callback_(str);
     }
 
-    pa_->Write(io_buf_);
+    connection_status_ |= pa_->Write(io_buf_);
     return true;
   }
 
@@ -200,6 +204,18 @@ class StreamCallData : public CallData {
     return true;
   }
 
+  bool is_disconnected() const override {
+    if (stream_) {
+      return connection_status_ != 0;
+    } else {
+      if (controller_) {
+        return controller_->IsCanceled();
+      }
+      return true;
+    }
+  }
+
+  Request& request() { return *request_; }
   Response& response() { return *response_; }
   ::google::protobuf::Closure* done() { return done_; }
   bool finished() { return finished_; }
@@ -208,7 +224,8 @@ class StreamCallData : public CallData {
   brpc::Controller* controller_;
   ::google::protobuf::Closure* done_;
 
-  Response* response_;
+  Request* request_ = nullptr;
+  Response* response_ = nullptr;
 
   bool stream_ = false;
   butil::intrusive_ptr<brpc::ProgressiveAttachment> pa_;
@@ -217,6 +234,8 @@ class StreamCallData : public CallData {
   bool finished_ = false;
   json2pb::Pb2JsonOptions json_options_;
   std::function<void(const std::string&)> trace_callback_;
+
+  int connection_status_ = 0;
 };
 
 using CompletionCallData = StreamCallData<::xllm::proto::CompletionRequest,
