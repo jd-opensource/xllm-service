@@ -152,7 +152,6 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
   brpc::ClosureGuard done_guard(done);
 
   // TODO: use threadpool here
-  //
   for (auto& request : req->gens()) {
     // convert proto request to `RequestOutput`
     llm::RequestOutput request_output;
@@ -170,6 +169,8 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
       u.num_total_tokens = request.usage().num_total_tokens();
       request_output.usage = std::move(u);
     }
+    request_output.finished_on_prefill_instance =
+        request.finished_on_prefill_instance();
     request_output.finished = request.finished();
     for (auto& output : request.outputs()) {
       llm::SequenceOutput sequence_output;
@@ -206,6 +207,7 @@ void XllmRpcService::Generations(google::protobuf::RpcController* cntl_base,
       }
       request_output.outputs.emplace_back(std::move(sequence_output));
     }
+
     resp->mutable_all_status()->Add()->set_ok(
         xllm_rpc_service_impl_->handle_generation(request_output));
   }
