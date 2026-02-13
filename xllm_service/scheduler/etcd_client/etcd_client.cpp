@@ -62,7 +62,7 @@ bool EtcdClient::set(const std::string& key,
 }
 
 bool EtcdClient::set(const std::string& key_prefix,
-                     const Murmur3KeyCacheMap& values) {
+                     const XXH3KeyCacheMap& values) {
   bool rt = true;
   for (const auto& iter : values) {
     if (iter.second.empty()) {
@@ -111,7 +111,7 @@ bool EtcdClient::get(const std::string& key, std::string* value) {
 }
 
 bool EtcdClient::get_prefix(const std::string& key_prefix,
-                            Murmur3KeyCacheMap* values) {
+                            XXH3KeyCacheMap* values) {
   auto response = client_.ls(key_prefix);
   if (!response.is_ok()) {
     LOG(ERROR) << "etcd get " << key_prefix
@@ -120,7 +120,7 @@ bool EtcdClient::get_prefix(const std::string& key_prefix,
   }
 
   for (int i = 0; i < response.keys().size(); i++) {
-    Murmur3Key key(response.key(i).substr(key_prefix.size()).c_str());
+    XXH3Key key(response.key(i).substr(key_prefix.size()).c_str());
     auto json_str = response.value(i).as_string();
 
     CacheLocations value;

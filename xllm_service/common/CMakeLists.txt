@@ -39,5 +39,6 @@ cc_library(
     nlohmann_json::nlohmann_json
     SMHasherSupport
     proto_xllm
+    xxHash
 )
 add_dependencies(common brpc-static)

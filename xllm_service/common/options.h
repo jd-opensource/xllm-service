@@ -64,7 +64,7 @@ class Options {
 
   PROPERTY(int32_t, block_size) = 128;
 
-  PROPERTY(uint32_t, murmur_hash3_seed) = 1024;
+  PROPERTY(uint32_t, xxh3_128bits_seed) = 1024;
 
   PROPERTY(std::string, service_name);
 

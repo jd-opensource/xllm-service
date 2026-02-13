@@ -55,11 +55,11 @@ class GlobalKVCacheMgr final {
   std::atomic_bool is_master_service_ = false;
   bool exited_ = false;
   std::shared_mutex kvcache_mutex_;
-  Murmur3KeyCacheMap kvcache_infos_;
+  XXH3KeyCacheMap kvcache_infos_;
   std::shared_ptr<EtcdClient> etcd_client_;  // not own
 
   std::mutex update_mutex_;
-  Murmur3KeyCacheMap updated_kvcaches_;
+  XXH3KeyCacheMap updated_kvcaches_;
 
   ThreadPool threadpool_;
 };
