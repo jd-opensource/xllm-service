@@ -81,16 +81,16 @@ void GlobalKVCacheMgr::match(const Slice<int32_t>& token_ids,
   overlap_scores->max_block_num = n_tokens / options_.block_size();
 
   std::shared_lock lock(kvcache_mutex_);
-  Murmur3Key token_hash_key;
+  XXH3Key token_hash_key;
   for (size_t i = 0; i < n_tokens; i += options_.block_size()) {
     if (i == 0) {
-      murmur_hash3(nullptr,
-                   token_ids.slice(i, i + options_.block_size()),
-                   token_hash_key.data);
+      xxh3_128bits_hash(nullptr,
+                        token_ids.slice(i, i + options_.block_size()),
+                        token_hash_key.data);
     } else {
-      murmur_hash3(token_hash_key.data,
-                   token_ids.slice(i, i + options_.block_size()),
-                   token_hash_key.data);
+      xxh3_128bits_hash(token_hash_key.data,
+                        token_ids.slice(i, i + options_.block_size()),
+                        token_hash_key.data);
     }
 
     auto iter = kvcache_infos_.find(token_hash_key);
@@ -139,8 +139,8 @@ void GlobalKVCacheMgr::update_kvcache(const etcd::Response& response,
                         response = std::move(response),
                         prefix_len = std::move(prefix_len)] {
     if (exited_) return;
-    Murmur3KeyCacheMap put_map;
-    std::vector<Murmur3Key> delete_list;
+    XXH3KeyCacheMap put_map;
+    std::vector<XXH3Key> delete_list;
 
     for (const auto& event : response.events()) {
       auto key = event.kv().key().substr(prefix_len);
@@ -153,11 +153,11 @@ void GlobalKVCacheMgr::update_kvcache(const etcd::Response& response,
           continue;
         }
 
-        put_map.insert_or_assign(Murmur3Key{key.c_str()},
+        put_map.insert_or_assign(XXH3Key{key.c_str()},
                                  std::move(cachelocations));
 
       } else if (event.event_type() == etcd::Event::EventType::DELETE_) {
-        delete_list.emplace_back(Murmur3Key{key.c_str()});
+        delete_list.emplace_back(XXH3Key{key.c_str()});
       }
     }
 
@@ -180,7 +180,7 @@ void GlobalKVCacheMgr::record_updated_kvcaches(
   std::lock_guard<std::mutex> update_lock(update_mutex_);
   std::shared_lock<std::shared_mutex> metric_lock(kvcache_mutex_);
   for (int i = 0; i < kvcache_event.stored_cache_size(); i++) {
-    Murmur3Key key(kvcache_event.stored_cache(i).c_str());
+    XXH3Key key(kvcache_event.stored_cache(i).c_str());
     if (updated_kvcaches_.count(key) == 0) {
       if (kvcache_infos_.count(key) == 0) {
         updated_kvcaches_.insert_or_assign(key, CacheLocations());
@@ -192,7 +192,7 @@ void GlobalKVCacheMgr::record_updated_kvcaches(
   }
 
   for (int i = 0; i < kvcache_event.offload_cache_size(); i++) {
-    Murmur3Key key(kvcache_event.offload_cache(i).c_str());
+    XXH3Key key(kvcache_event.offload_cache(i).c_str());
     if (updated_kvcaches_.count(key) == 0) {
       if (kvcache_infos_.count(key) == 0) {
         continue;
@@ -210,7 +210,7 @@ void GlobalKVCacheMgr::record_updated_kvcaches(
   }
 
   for (int i = 0; i < kvcache_event.removed_cache_size(); i++) {
-    Murmur3Key key(kvcache_event.removed_cache(i).c_str());
+    XXH3Key key(kvcache_event.removed_cache(i).c_str());
     if (updated_kvcaches_.count(key) == 0) {
       if (kvcache_infos_.count(key) == 0) {
         continue;

@@ -3,6 +3,7 @@
 
 #include <MurmurHash3.h>
 #include <assert.h>
+#include <xxhash.h>
 
 #include <iomanip>
 #include <iostream>
@@ -14,41 +15,42 @@
 
 namespace xllm_service {
 
-void murmur_hash3(const uint8_t* pre_hash_value,
-                  const Slice<int32_t>& token_ids,
-                  uint8_t* hash_value) {
+void xxh3_128bits_hash(const uint8_t* pre_hash_value,
+                       const Slice<int32_t>& token_ids,
+                       uint8_t* hash_value) {
   if (pre_hash_value == nullptr) {
-    MurmurHash3_x64_128(reinterpret_cast<const void*>(token_ids.data()),
-                        sizeof(int32_t) * token_ids.size(),
-                        FLAGS_murmur_hash3_seed,
-                        hash_value);
+    XXH128_hash_t xxh3_128bits_hash_value =
+        XXH3_128bits_withSeed(reinterpret_cast<const void*>(token_ids.data()),
+                              sizeof(int32_t) * token_ids.size(),
+                              FLAGS_xxh3_128bits_seed);
+    memcpy(
+        hash_value, &xxh3_128bits_hash_value, sizeof(xxh3_128bits_hash_value));
   } else {
-    uint8_t key[1024];
+    uint8_t key[512];
 
     int32_t data_len =
-        sizeof(int32_t) * token_ids.size() + MURMUR_HASH3_VALUE_LEN;
-    assert(sizeof(key) > data_len);
+        sizeof(int32_t) * token_ids.size() + XXH3_128BITS_HASH_VALUE_LEN;
+    CHECK_GT(sizeof(key), data_len) << "key size is too small";
 
-    memcpy(key, pre_hash_value, MURMUR_HASH3_VALUE_LEN);
-    memcpy(key + MURMUR_HASH3_VALUE_LEN,
+    memcpy(key, pre_hash_value, XXH3_128BITS_HASH_VALUE_LEN);
+    memcpy(key + XXH3_128BITS_HASH_VALUE_LEN,
            reinterpret_cast<const void*>(token_ids.data()),
            sizeof(int32_t) * token_ids.size());
 
-    // print_hex_array(key, data_len);
-    MurmurHash3_x64_128(reinterpret_cast<const void*>(key),
-                        data_len,
-                        FLAGS_murmur_hash3_seed,
-                        hash_value);
+    XXH128_hash_t xxh3_128bits_hash_value = XXH3_128bits_withSeed(
+        reinterpret_cast<const void*>(key), data_len, FLAGS_xxh3_128bits_seed);
+    memcpy(
+        hash_value, &xxh3_128bits_hash_value, sizeof(xxh3_128bits_hash_value));
   }
 }
 
 void print_hex_array(uint8_t* array) {
-  for (size_t i = 0; i < MURMUR_HASH3_VALUE_LEN; ++i) {
+  for (size_t i = 0; i < XXH3_128BITS_HASH_VALUE_LEN; ++i) {
     unsigned char uc = static_cast<unsigned char>(array[i]);
     std::cout << std::hex << std::setw(2) << std::setfill('0')
               << static_cast<int>(uc);
 
-    if (i % MURMUR_HASH3_VALUE_LEN == MURMUR_HASH3_VALUE_LEN - 1) {
+    if (i % XXH3_128BITS_HASH_VALUE_LEN == XXH3_128BITS_HASH_VALUE_LEN - 1) {
       std::cout << std::endl;
     }
 
