@@ -31,10 +31,10 @@ limitations under the License.
 namespace xllm_service {
 
 struct CacheLocations;
-using Murmur3KeyCacheMap = std::unordered_map<Murmur3Key,
-                                              CacheLocations,
-                                              FixedStringKeyHash,
-                                              FixedStringKeyEqual>;
+using XXH3KeyCacheMap = std::unordered_map<XXH3Key,
+                                           CacheLocations,
+                                           FixedStringKeyHash,
+                                           FixedStringKeyEqual>;
 
 struct Routing {
   std::string prefill_name;

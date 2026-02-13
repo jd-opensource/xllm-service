@@ -19,6 +19,7 @@ proto_library(
   NAME
     proto_xllm
   SRCS
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/anthropic.proto
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/chat.proto
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/common.proto
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/completion.proto

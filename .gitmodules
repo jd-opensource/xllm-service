@@ -22,3 +22,6 @@
 [submodule "third_party/xllm"]
 	path = third_party/xllm
 	url = https://github.com/jd-opensource/xllm.git
+[submodule "third_party/xxHash"]
+	path = third_party/xxHash
+	url = https://gitcode.com/xLLM-AI/xxHash.git
