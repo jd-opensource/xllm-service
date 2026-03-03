@@ -15,6 +15,8 @@ limitations under the License.
 
 #include "response_handler.h"
 
+#include "scheduler/xllm_chat_parse_bridge.h"
+
 namespace xllm_service {
 
 bool ResponseHandler::send_delta_to_client(
@@ -199,7 +201,10 @@ bool ResponseHandler::send_result_to_client(
     std::shared_ptr<ChatCallData> call_data,
     int64_t created_time,
     const std::string& model,
-    const llm::RequestOutput& req_output) {
+    const llm::RequestOutput& req_output,
+    const std::vector<JsonTool>& tools,
+    const std::string& tool_call_parser,
+    const std::string& reasoning_parser) {
   auto& response = call_data->response();
   auto& request_id = req_output.request_id;
   response.set_object("chat.completion");
@@ -237,9 +242,34 @@ bool ResponseHandler::send_result_to_client(
 
     auto* message = choice->mutable_message();
     message->set_role("assistant");
-    message->set_content(output.text);
-    if (output.finish_reason.has_value()) {
-      choice->set_finish_reason(output.finish_reason.value());
+
+    if (!output.text.empty()) {
+      auto result =
+          parse_chat_output_with_xllm(output.text,
+                                      tools,
+                                      model,
+                                      output.finish_reason.value_or(""),
+                                      tool_call_parser,
+                                      reasoning_parser,
+                                      response.GetArena());
+      message->set_content(result.text);
+      if (result.reasoning_content.has_value()) {
+        message->set_reasoning_content(result.reasoning_content.value());
+      }
+      if (result.tool_calls.has_value()) {
+        auto& source_tool_calls = *result.tool_calls;
+        message->mutable_tool_calls()->Swap(&source_tool_calls);
+      }
+      if (!result.finish_reason.empty()) {
+        choice->set_finish_reason(result.finish_reason);
+      } else if (output.finish_reason.has_value()) {
+        choice->set_finish_reason(output.finish_reason.value());
+      }
+    } else {
+      message->set_content(output.text);
+      if (output.finish_reason.has_value()) {
+        choice->set_finish_reason(output.finish_reason.value());
+      }
     }
   }
 

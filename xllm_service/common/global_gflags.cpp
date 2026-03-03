@@ -110,3 +110,13 @@ DEFINE_int32(target_tpot,
              "Target Time Per Output Token (TPOT), in milliseconds.");
 
 BRPC_VALIDATE_GFLAG(target_tpot, brpc::NonNegativeInteger);
+
+DEFINE_string(reasoning_parser,
+              "",
+              "Specify the reasoning parser for handling reasoning "
+              "interactions(e.g. auto, glm45, glm47, qwen3, deepseek-r1).");
+
+DEFINE_string(tool_call_parser,
+              "",
+              "Specify the parser for handling tool-call interactions(e.g. "
+              "auto, qwen25, qwen3, kimi_k2, deepseekv3, glm45, glm47).");

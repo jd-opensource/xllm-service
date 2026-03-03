@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "common/call_data.h"
 #include "common/threadpool.h"
+#include "common/types.h"
 #include "common/xllm/output.h"
 #include "common/xllm/status.h"
 
@@ -38,7 +39,10 @@ class ResponseHandler final {
   bool send_result_to_client(std::shared_ptr<ChatCallData> call_data,
                              int64_t created_time,
                              const std::string& model,
-                             const llm::RequestOutput& req_output);
+                             const llm::RequestOutput& req_output,
+                             const std::vector<JsonTool>& tools = {},
+                             const std::string& tool_call_parser = "",
+                             const std::string& reasoning_parser = "");
 
   bool send_delta_to_client(std::shared_ptr<CompletionCallData> call_data,
                             bool include_usage,

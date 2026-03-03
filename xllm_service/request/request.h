@@ -45,6 +45,12 @@ struct Request {
   // input messages
   ChatMessages messages;
 
+  // tool definitions for function/tool calling
+  std::vector<JsonTool> tools;
+
+  // controls tool usage behavior, e.g. auto/none/required
+  std::string tool_choice = "auto";
+
   // token ids of prompt
   std::vector<int32_t> token_ids;
 

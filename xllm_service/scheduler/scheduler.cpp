@@ -94,7 +94,10 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
       return false;
     }
 
-    auto prompt = chat_template_->apply(request->messages);
+    const std::vector<JsonTool> empty_tools;
+    const std::vector<JsonTool>& tools_for_template =
+        request->tool_choice == "none" ? empty_tools : request->tools;
+    auto prompt = chat_template_->apply(request->messages, tools_for_template);
     if (!prompt.has_value()) {
       LOG(ERROR) << "Failed to construct prompt from messages";
       return false;
@@ -259,6 +262,10 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
          model = request->model,
          stream = request->stream,
          include_usage = request->include_usage,
+         tools = (request->tool_choice == "none" ? std::vector<JsonTool>{}
+                                                 : request->tools),
+         tool_call_parser = options_.tool_call_parser(),
+         reasoning_parser = options_.reasoning_parser(),
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(request->latest_generate_time)](
             const llm::RequestOutput& req_output) mutable -> bool {
@@ -274,8 +281,13 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
             call_data, include_usage, created_time, model, req_output);
       } else if (!req_output.finished_on_prefill_instance) {
         // for non-stream request, only send final result from decode instance
-        return response_handler_.send_result_to_client(
-            call_data, created_time, model, req_output);
+        return response_handler_.send_result_to_client(call_data,
+                                                       created_time,
+                                                       model,
+                                                       req_output,
+                                                       tools,
+                                                       tool_call_parser,
+                                                       reasoning_parser);
       }
       return true;
     };

@@ -194,7 +194,9 @@ int main(int argc, char* argv[]) {
           FLAGS_detect_disconnected_instance_interval)
       .enable_request_trace(FLAGS_enable_request_trace)
       .block_size(FLAGS_block_size)
-      .tokenizer_path(FLAGS_tokenizer_path);
+      .tokenizer_path(FLAGS_tokenizer_path)
+      .tool_call_parser(FLAGS_tool_call_parser)
+      .reasoning_parser(FLAGS_reasoning_parser);
 
   xllm_service::Master master(options);
 

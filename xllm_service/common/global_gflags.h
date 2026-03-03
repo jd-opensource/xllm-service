@@ -66,3 +66,7 @@ DECLARE_bool(enable_request_trace);
 DECLARE_int32(target_ttft);
 
 DECLARE_int32(target_tpot);
+
+DECLARE_string(tool_call_parser);
+
+DECLARE_string(reasoning_parser);
