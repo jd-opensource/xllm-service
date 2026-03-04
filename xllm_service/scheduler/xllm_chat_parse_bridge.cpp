@@ -21,6 +21,7 @@ limitations under the License.
 #include <exception>
 #include <utility>
 
+#include "xllm/xllm/api_service/stream_output_parser.h"
 #include "xllm/xllm/function_call/function_call_parser.h"
 #include "xllm/xllm/parser/reasoning_parser.h"
 
@@ -197,6 +198,36 @@ ChatParseResult parse_chat_output_with_xllm(
   }
 
   return result;
+}
+
+ResolvedChatParserFormats resolve_chat_parser_formats_with_xllm(
+    const std::string& model,
+    const std::string& parser_preference,
+    const std::string& reasoning_parser_preference) {
+  ResolvedChatParserFormats formats;
+  formats.tool_call_parser = resolve_tool_call_parser(parser_preference, model);
+  formats.reasoning_parser =
+      resolve_reasoning_parser(reasoning_parser_preference, model);
+  return formats;
+}
+
+std::shared_ptr<xllm::StreamOutputParser> create_stream_output_parser_with_xllm(
+    const std::vector<JsonTool>& tools,
+    const std::string& model,
+    const std::string& parser_preference,
+    const std::string& reasoning_parser_preference,
+    bool force_reasoning) {
+  auto formats = resolve_chat_parser_formats_with_xllm(
+      model, parser_preference, reasoning_parser_preference);
+  if (formats.tool_call_parser.empty() && formats.reasoning_parser.empty()) {
+    return nullptr;
+  }
+
+  auto xllm_tools = to_xllm_tools(tools);
+  return std::make_shared<xllm::StreamOutputParser>(xllm_tools,
+                                                    formats.tool_call_parser,
+                                                    formats.reasoning_parser,
+                                                    force_reasoning);
 }
 
 }  // namespace xllm_service

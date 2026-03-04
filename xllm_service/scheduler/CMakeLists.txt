@@ -23,6 +23,7 @@ cc_library(
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/parser/reasoning_detector.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/parser/reasoning_parser.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/parser/detector_registry.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/api_service/stream_output_parser.cpp
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/core/util/uuid.cpp
   INCLUDES
     ${CMAKE_SOURCE_DIR}/third_party/xllm

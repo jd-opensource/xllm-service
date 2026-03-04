@@ -255,6 +255,19 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
     }
 
     request->latest_generate_time = absl::Now();
+    auto tools_for_parse =
+        (request->tool_choice == "none" ? std::vector<JsonTool>{}
+                                        : request->tools);
+    auto tool_call_parser_pref = options_.tool_call_parser();
+    auto reasoning_parser_pref = options_.reasoning_parser();
+    std::shared_ptr<ChatStreamParseState> stream_state;
+    if (request->stream) {
+      stream_state = response_handler_.create_chat_stream_parse_state(
+          tools_for_parse,
+          request->model,
+          tool_call_parser_pref,
+          reasoning_parser_pref);
+    }
 
     request->output_callback =
         [this,
@@ -262,10 +275,10 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
          model = request->model,
          stream = request->stream,
          include_usage = request->include_usage,
-         tools = (request->tool_choice == "none" ? std::vector<JsonTool>{}
-                                                 : request->tools),
-         tool_call_parser = options_.tool_call_parser(),
-         reasoning_parser = options_.reasoning_parser(),
+         tools = std::move(tools_for_parse),
+         tool_call_parser = std::move(tool_call_parser_pref),
+         reasoning_parser = std::move(reasoning_parser_pref),
+         stream_state = std::move(stream_state),
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(request->latest_generate_time)](
             const llm::RequestOutput& req_output) mutable -> bool {
@@ -277,8 +290,12 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
       }
 
       if (stream) {
-        return response_handler_.send_delta_to_client(
-            call_data, include_usage, created_time, model, req_output);
+        return response_handler_.send_delta_to_client(call_data,
+                                                      include_usage,
+                                                      created_time,
+                                                      model,
+                                                      req_output,
+                                                      stream_state);
       } else if (!req_output.finished_on_prefill_instance) {
         // for non-stream request, only send final result from decode instance
         return response_handler_.send_result_to_client(call_data,
