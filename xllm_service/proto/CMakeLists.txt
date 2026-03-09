@@ -32,4 +32,5 @@ proto_library(
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/image_generation.proto
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/rerank.proto
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/models.proto
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/proto/anthropic.proto
 )
