@@ -63,7 +63,7 @@ class EtcdClient {
     return true;
   }
 
-  bool set(const std::string& key_prefix, const Murmur3KeyCacheMap& values);
+  bool set(const std::string& key_prefix, const XXH3KeyCacheMap& values);
 
   bool set(const std::string& key, const std::string& value);
 
@@ -117,7 +117,7 @@ class EtcdClient {
     return true;
   }
 
-  bool get_prefix(const std::string& key_prefix, Murmur3KeyCacheMap* values);
+  bool get_prefix(const std::string& key_prefix, XXH3KeyCacheMap* values);
 
   bool get_prefix(const std::string& key_prefix,
                   std::unordered_map<std::string, std::string>* values);
