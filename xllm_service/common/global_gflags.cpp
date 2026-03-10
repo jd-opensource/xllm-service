@@ -22,29 +22,33 @@ DEFINE_string(server_host,
               "Server listen address, may be IPV4/IPV6/UDS."
               " If this is set, the flag port will be ignored");
 
-DEFINE_int32(http_server_port, 8888, "Port for xllm http service to listen on");
+DEFINE_int32(api_server_port, 8888, "Port for xllm api service to listen on");
 
-DEFINE_int32(http_server_idle_timeout_s,
+DEFINE_int32(api_server_idle_timeout_s,
              -1,
              "Connection will be closed if there is no "
              "read/write operations during the last `idle_timeout_s'");
 
-DEFINE_int32(http_server_num_threads, 32, "Maximum number of threads to use");
+DEFINE_int32(api_server_num_threads, 32, "Maximum number of threads to use");
 
-DEFINE_int32(http_server_max_concurrency,
+DEFINE_int32(api_server_max_concurrency,
              128,
              "Limit number of requests processed in parallel");
 
-DEFINE_int32(rpc_server_port, 8889, "Port for xllm rpc service to listen on");
+DEFINE_int32(instance_server_port,
+             8889,
+             "Port for xllm instance service to listen on");
 
-DEFINE_int32(rpc_server_idle_timeout_s,
+DEFINE_int32(instance_server_idle_timeout_s,
              -1,
              "Connection will be closed if there is no "
              "read/write operations during the last `idle_timeout_s'");
 
-DEFINE_int32(rpc_server_num_threads, 32, "Maximum number of threads to use");
+DEFINE_int32(instance_server_num_threads,
+             32,
+             "Maximum number of threads to use");
 
-DEFINE_int32(rpc_server_max_concurrency,
+DEFINE_int32(instance_server_max_concurrency,
              128,
              "Limit number of requests processed in parallel");
 
@@ -83,9 +87,7 @@ DEFINE_int32(idle_timeout_s,
              "Connection will be closed if there is no "
              "read/write operations during the last `idle_timeout_s'");
 
-DEFINE_string(load_balance_policy,
-              "RR",
-              "Disaggregated prefill-decode policy.");
+DEFINE_string(scheduling_policy, "RR", "Disaggregated prefill-decode policy.");
 
 DEFINE_int32(detect_disconnected_instance_interval,
              15,

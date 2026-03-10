@@ -21,6 +21,7 @@ cc_library(
     xllm/output.h
     xllm/status.h
     xllm/uuid.h
+    etcd_client/etcd_client.h
   SRCS
     global_gflags.cpp
     json_reader.cpp
@@ -31,6 +32,7 @@ cc_library(
     timer.cpp
     metrics.cpp
     xllm/uuid.cpp
+    etcd_client/etcd_client.cpp
   DEPS
     absl::random_random
     absl::strings
@@ -40,5 +42,7 @@ cc_library(
     SMHasherSupport
     proto_xllm
     xxHash
+    cpprest
+    etcd-cpp-api
 )
 add_dependencies(common brpc-static)

@@ -1,27 +1,21 @@
+include(cc_binary)
 include(cc_library)
-
-add_subdirectory(etcd_client)
-add_subdirectory(managers)
-add_subdirectory(loadbalance_policy)
+include(cc_test)
 
 cc_library(
   NAME
     scheduler
   HDRS
-    response_handler.h
-    scheduler.h
+    scheduling_policy.h
+    round_robin.h
+    cache_aware_routing.h
+    slo_aware_policy.h
   SRCS
-    response_handler.cpp
-    scheduler.cpp
+    round_robin.cpp
+    cache_aware_routing.cpp
+    slo_aware_policy.cpp
   DEPS
     :chat_template
     :common
-    :etcd_client
-    :loadbalance_policy
-    :managers
-    :request
-    cpprest
-    etcd-cpp-api
-    glog::glog
-    nlohmann_json::nlohmann_json
+    :instances
 )

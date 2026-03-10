@@ -1,0 +1,21 @@
+include(cc_binary)
+include(cc_library)
+
+cc_library(
+  NAME
+  api_service
+  HDRS
+    api_service.h
+  SRCS
+    api_service.cpp
+  DEPS
+    :common
+    :request
+    :runtime
+    absl::random_random
+    absl::synchronization
+    glog::glog
+    nlohmann_json::nlohmann_json
+    proto::proto_http_service
+    proto_xllm
+)

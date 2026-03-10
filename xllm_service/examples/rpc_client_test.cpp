@@ -16,7 +16,7 @@ limitations under the License.
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "rpc_service/client.h"
+#include "instances/instance_client.h"
 
 DEFINE_string(server_address, "localhost:9999", "Grpc server address.");
 DEFINE_string(client_name, "127.0.0.1@9999", "client name.");

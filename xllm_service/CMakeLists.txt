@@ -5,22 +5,22 @@ include(cc_test)
 add_subdirectory(proto)
 add_subdirectory(common)
 add_subdirectory(request)
-add_subdirectory(rpc_service)
-add_subdirectory(tokenizer)
-add_subdirectory(chat_template)
-add_subdirectory(http_service)
+add_subdirectory(instances)
 add_subdirectory(scheduler)
+add_subdirectory(runtime)
+add_subdirectory(api_service)
 
 cc_binary(
   NAME
     xllm_master_serving
   HDRS
-    master.h
+    xllm_service.h
   SRCS
-    master.cpp
+    xllm_service.cpp
   DEPS
-    :xllm_http_service
-    :xllm_rpc_service
+    :api_service
+    :instance_service
+    glog::glog
 )
 
 add_subdirectory(examples)

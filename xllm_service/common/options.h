@@ -30,22 +30,22 @@ class Options {
   // http server options
   PROPERTY(std::string, server_host);
 
-  PROPERTY(int32_t, http_port) = 9998;
+  PROPERTY(int32_t, api_port) = 9998;
 
-  PROPERTY(int32_t, http_idle_timeout_s) = -1;
+  PROPERTY(int32_t, api_idle_timeout_s) = -1;
 
-  PROPERTY(int32_t, http_num_threads) = 32;
+  PROPERTY(int32_t, api_num_threads) = 32;
 
-  PROPERTY(int32_t, http_max_concurrency) = 0;
+  PROPERTY(int32_t, api_max_concurrency) = 0;
 
   // rpc server options
-  PROPERTY(int32_t, rpc_port) = 9999;
+  PROPERTY(int32_t, instance_port) = 9999;
 
-  PROPERTY(int32_t, rpc_idle_timeout_s) = -1;
+  PROPERTY(int32_t, instance_idle_timeout_s) = -1;
 
-  PROPERTY(int32_t, rpc_num_threads) = 32;
+  PROPERTY(int32_t, instance_num_threads) = 32;
 
-  PROPERTY(int32_t, rpc_max_concurrency) = 0;
+  PROPERTY(int32_t, instance_max_concurrency) = 0;
 
   PROPERTY(int32_t, num_threads) = 32;
 
@@ -60,8 +60,8 @@ class Options {
 
   PROPERTY(int32_t, detect_disconnected_instance_interval) = 15;
 
-  // scheduler options
-  PROPERTY(std::string, load_balance_policy);
+  // scheduling policy options
+  PROPERTY(std::string, scheduling_policy);
 
   PROPERTY(int32_t, block_size) = 128;
 

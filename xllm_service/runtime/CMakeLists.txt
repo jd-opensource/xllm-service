@@ -1,0 +1,22 @@
+include(cc_library)
+
+cc_library(
+  NAME
+    runtime
+  HDRS
+    response_handler.h
+    executor.h
+  SRCS
+    response_handler.cpp
+    executor.cpp
+  DEPS
+    :chat_template
+    :common
+    :scheduler
+    :instances
+    :request
+    cpprest
+    etcd-cpp-api
+    glog::glog
+    nlohmann_json::nlohmann_json
+)

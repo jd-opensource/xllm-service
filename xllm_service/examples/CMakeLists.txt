@@ -6,7 +6,7 @@ cc_binary(
   SRCS 
     rpc_hello_client.cpp
   DEPS
-    :xllm_rpc_service
+    :instance_service
     gflags::gflags
     glog::glog
 )
@@ -17,7 +17,7 @@ cc_binary(
   SRCS 
     rpc_client_test.cpp
   DEPS
-    :xllm_rpc_client
+    :instance_service
     gflags::gflags
     glog::glog
 )

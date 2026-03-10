@@ -19,21 +19,21 @@ limitations under the License.
 
 DECLARE_string(server_host);
 
-DECLARE_int32(http_server_port);
+DECLARE_int32(api_server_port);
 
-DECLARE_int32(http_server_idle_timeout_s);
+DECLARE_int32(api_server_idle_timeout_s);
 
-DECLARE_int32(http_server_num_threads);
+DECLARE_int32(api_server_num_threads);
 
-DECLARE_int32(http_server_max_concurrency);
+DECLARE_int32(api_server_max_concurrency);
 
-DECLARE_int32(rpc_server_port);
+DECLARE_int32(instance_server_port);
 
-DECLARE_int32(rpc_server_idle_timeout_s);
+DECLARE_int32(instance_server_idle_timeout_s);
 
-DECLARE_int32(rpc_server_num_threads);
+DECLARE_int32(instance_server_num_threads);
 
-DECLARE_int32(rpc_server_max_concurrency);
+DECLARE_int32(instance_server_max_concurrency);
 
 DECLARE_uint32(xxh3_128bits_seed);
 
@@ -53,7 +53,7 @@ DECLARE_int32(max_concurrency);
 
 DECLARE_string(etcd_addr);
 
-DECLARE_string(load_balance_policy);
+DECLARE_string(scheduling_policy);
 
 DECLARE_int32(detect_disconnected_instance_interval);
 
