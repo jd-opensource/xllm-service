@@ -795,6 +795,7 @@ bool InstanceMgr::link_instance_internal(const std::string& name,
   bool link_ok = true;
   int32_t linked_p_count = 0;
   int32_t linked_d_count = 0;
+  std::vector<std::string> linked_mix_names;
 
   switch (info.type) {
     case InstanceType::DEFAULT:
@@ -820,23 +821,15 @@ bool InstanceMgr::link_instance_internal(const std::string& name,
       break;
     }
     case InstanceType::MIX: {
-      for (auto& p_name : prefill_index_) {
-        if (!call_link_instance(info.rpc_address, instances_[p_name]) ||
-            !call_link_instance(instances_[p_name].rpc_address, info)) {
+      for (const auto& [peer_name, peer_info] : instances_) {
+        if (peer_name == name) {
+          continue;
+        }
+        if (!call_link_instance(info.rpc_address, peer_info)) {
           link_ok = false;
           break;
         }
-        linked_p_count++;
-      }
-      if (link_ok) {
-        for (auto& d_name : decode_index_) {
-          if (!call_link_instance(info.rpc_address, instances_[d_name]) ||
-              !call_link_instance(instances_[d_name].rpc_address, info)) {
-            link_ok = false;
-            break;
-          }
-          linked_d_count++;
-        }
+        linked_mix_names.emplace_back(peer_name);
       }
       break;
     }
@@ -858,13 +851,12 @@ bool InstanceMgr::link_instance_internal(const std::string& name,
         call_unlink_instance(info.rpc_address, instances_[prefill_index_[i]]);
       }
     } else if (info.type == InstanceType::MIX) {
-      for (int i = 0; i < linked_p_count; i++) {
-        call_unlink_instance(info.rpc_address, instances_[prefill_index_[i]]);
-        call_unlink_instance(instances_[prefill_index_[i]].rpc_address, info);
-      }
-      for (int i = 0; i < linked_d_count; i++) {
-        call_unlink_instance(info.rpc_address, instances_[decode_index_[i]]);
-        call_unlink_instance(instances_[decode_index_[i]].rpc_address, info);
+      for (const auto& linked_name : linked_mix_names) {
+        auto it = instances_.find(linked_name);
+        if (it == instances_.end()) {
+          continue;
+        }
+        call_unlink_instance(info.rpc_address, it->second);
       }
     }
     return false;
@@ -884,13 +876,11 @@ void InstanceMgr::unlink_instance_internal(const std::string& name,
       call_unlink_instance(instances_[p_name].rpc_address, info);
     }
   } else if (info.type == InstanceType::MIX) {
-    for (auto& p_name : prefill_index_) {
-      if (p_name == name) continue;
-      call_unlink_instance(instances_[p_name].rpc_address, info);
-    }
-    for (auto& d_name : decode_index_) {
-      if (d_name == name) continue;
-      call_unlink_instance(instances_[d_name].rpc_address, info);
+    for (const auto& [peer_name, peer_info] : instances_) {
+      if (peer_name == name) {
+        continue;
+      }
+      call_unlink_instance(peer_info.rpc_address, info);
     }
   }
 }
