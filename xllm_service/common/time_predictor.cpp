@@ -70,7 +70,7 @@ TimePredictor::TimePredictor(
     // get coefficients
     tpot_coefficients_ = matrix.colPivHouseholderQr().solve(target);
   } else {
-    ttft_coefficients_ = Eigen::VectorXd::Zero(3);
+    tpot_coefficients_ = Eigen::VectorXd::Zero(3);
   }
 }
 
