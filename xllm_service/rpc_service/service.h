@@ -36,7 +36,7 @@ class XllmRpcServiceImpl final {
   XllmRpcServiceImpl(const Options& options, Scheduler* scheduler);
   ~XllmRpcServiceImpl();
 
-  void heartbeat(const proto::HeartbeatRequest* req);
+  bool heartbeat(const proto::HeartbeatRequest* req);
 
   InstanceMetaInfo get_instance_info(const std::string& instance_name);
 

@@ -91,6 +91,21 @@ DEFINE_int32(detect_disconnected_instance_interval,
              15,
              "The interval that server detect the disconnected instance.");
 
+DEFINE_int32(instance_delete_probe_timeout_ms,
+             1000,
+             "Timeout in milliseconds for the initial health probe after an "
+             "instance lease delete event.");
+
+DEFINE_int32(instance_delete_probe_attempts,
+             2,
+             "The total number of health probe attempts after an instance "
+             "lease delete event.");
+
+DEFINE_int32(lease_lost_heartbeat_timeout_ms,
+             3000,
+             "Heartbeat silence timeout in milliseconds before a "
+             "LEASE_LOST instance enters SUSPECT.");
+
 DEFINE_int32(block_size,
              128,
              "Number of slots per kv cache block. Default is 128.");

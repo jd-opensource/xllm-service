@@ -114,6 +114,15 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
   }
 
   auto ret = lb_policy_->select_instances_pair(request);
+  if (!ret) {
+    return false;
+  }
+
+  if (!instance_mgr_->bind_request_instance_incarnations(request)) {
+    LOG(ERROR) << "Failed to bind request to instance incarnation ids. "
+               << request->routing.debug_string();
+    return false;
+  }
   DLOG(INFO) << request->routing.debug_string();
 
   // update request metrics
@@ -121,7 +130,7 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
     instance_mgr_->update_request_metrics(request, RequestAction::SCHEDULE);
   }
 
-  return ret;
+  return true;
 }
 
 std::shared_ptr<brpc::Channel> Scheduler::get_channel(
@@ -155,13 +164,18 @@ bool Scheduler::register_current_service() {
   return false;
 }
 
-void Scheduler::handle_instance_heartbeat(const proto::HeartbeatRequest* req) {
+bool Scheduler::handle_instance_heartbeat(const proto::HeartbeatRequest* req) {
   if (exited_) {
-    return;
+    return false;
+  }
+  if (!instance_mgr_->record_instance_heartbeat(req->name(),
+                                                req->incarnation_id())) {
+    return false;
   }
   global_kvcache_mgr_->record_updated_kvcaches(req->name(), req->cache_event());
   instance_mgr_->record_load_metrics_update(req->name(), req->load_metrics());
   instance_mgr_->update_latency_metrics(req->name(), req->latency_metrics());
+  return true;
 }
 
 void Scheduler::handle_master_service_watch(const etcd::Response& response,
@@ -382,20 +396,22 @@ bool Scheduler::record_new_request(
 
 void Scheduler::finish_request(const std::string& service_request_id,
                                bool error) {
+  std::shared_ptr<Request> request;
   {
     std::lock_guard<std::mutex> guard(request_mutex_);
     auto it = requests_.find(service_request_id);
     if (it != requests_.end()) {
-      // update instance request metrics for finished request
-      if (error) {
-        instance_mgr_->update_request_metrics(it->second,
-                                              RequestAction::CANCEL);
-      } else {
-        instance_mgr_->update_request_metrics(it->second,
-                                              RequestAction::FINISH_DECODE);
-      }
-
+      request = it->second;
       requests_.erase(it);
+    }
+  }
+
+  if (request != nullptr) {
+    if (error) {
+      instance_mgr_->update_request_metrics(request, RequestAction::CANCEL);
+    } else {
+      instance_mgr_->update_request_metrics(request,
+                                            RequestAction::FINISH_DECODE);
     }
   }
 
@@ -407,25 +423,41 @@ void Scheduler::finish_request(const std::string& service_request_id,
 
 void Scheduler::clear_requests_on_failed_instance(
     const std::string& instance_name,
+    const std::string& incarnation_id,
     InstanceType type) {
+  std::vector<std::string> cleared_request_ids;
   std::lock_guard<std::mutex> lock(request_mutex_);
   for (auto it = requests_.begin(); it != requests_.end();) {
-    if ((type == InstanceType::PREFILL &&
+    const bool clear_prefill =
+        ((type == InstanceType::DEFAULT || type == InstanceType::PREFILL) &&
          it->second->routing.prefill_name == instance_name &&
-         !it->second->prefill_stage_finished) ||
+         it->second->prefill_incarnation_id == incarnation_id &&
+         !it->second->prefill_stage_finished);
+    const bool clear_decode =
         (type == InstanceType::DECODE &&
-         it->second->routing.decode_name == instance_name)) {
+         it->second->routing.decode_name == instance_name &&
+         it->second->decode_incarnation_id == incarnation_id);
+    if (clear_prefill || clear_decode) {
       auto service_request_id = it->second->service_request_id;
       llm::RequestOutput req_output;
       req_output.status = llm::Status(llm::StatusCode::CANCELLED,
                                       "Instance is failed and deleted");
       // call request callback
-      requests_[service_request_id]->output_callback(req_output);
+      it->second->output_callback(req_output);
       LOG(INFO) << "Clear request on failed instance: " << instance_name
-                << " , service_request_id: " << service_request_id;
+                << ", incarnation_id: " << incarnation_id
+                << ", service_request_id: " << service_request_id;
+      cleared_request_ids.emplace_back(service_request_id);
       it = requests_.erase(it);
     } else {
       ++it;
+    }
+  }
+
+  if (!cleared_request_ids.empty()) {
+    std::lock_guard<std::mutex> guard(thread_map_mutex_);
+    for (const auto& service_request_id : cleared_request_ids) {
+      remote_requests_output_thread_map_.erase(service_request_id);
     }
   }
 }
@@ -438,6 +470,8 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
       request_output.status.has_value() && !request_output.status.value().ok();
 
   OutputCallback cb;
+  std::shared_ptr<Request> request;
+  bool client_disconnected = false;
   {
     std::lock_guard<std::mutex> guard(request_mutex_);
     auto it = requests_.find(service_request_id);
@@ -447,7 +481,7 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
                  << service_request_id;
       return false;
     }
-    auto& request = it->second;
+    request = it->second;
     cb = request->output_callback;
 
     // check client connection
@@ -455,20 +489,22 @@ bool Scheduler::handle_generation(const llm::RequestOutput& request_output) {
       LOG(INFO) << "Client has disconnected and the request will be cancelled, "
                    "request id: "
                 << service_request_id;
-      instance_mgr_->update_request_metrics(request, RequestAction::CANCEL);
       requests_.erase(it);
-      {
-        std::lock_guard<std::mutex> guard(thread_map_mutex_);
-        remote_requests_output_thread_map_.erase(service_request_id);
-      }
-      return false;
+      client_disconnected = true;
     }
+  }
 
-    if (!status_error) {
-      // no error, update instance request metrics
-      update_request_metrics(request, finished_on_prefill_instance);
-      update_token_latency_metrics(request, finished_on_prefill_instance);
-    }
+  if (client_disconnected) {
+    instance_mgr_->update_request_metrics(request, RequestAction::CANCEL);
+    std::lock_guard<std::mutex> guard(thread_map_mutex_);
+    remote_requests_output_thread_map_.erase(service_request_id);
+    return false;
+  }
+
+  if (!status_error) {
+    // no error, update instance request metrics
+    update_request_metrics(request, finished_on_prefill_instance);
+    update_token_latency_metrics(request, finished_on_prefill_instance);
   }
 
   size_t req_thread_idx = -1;

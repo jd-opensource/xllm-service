@@ -59,6 +59,10 @@ class InstanceMgr final {
 
   std::shared_ptr<brpc::Channel> get_channel(const std::string& instance_name);
 
+  bool bind_request_instance_incarnations(
+      const std::shared_ptr<Request>& request);
+  bool record_instance_heartbeat(const std::string& instance_name,
+                                 const std::string& incarnation_id);
   void record_load_metrics_update(const std::string& instance_name,
                                   const proto::LoadMetrics& load_metrics);
   bool upload_load_metrics();
@@ -82,6 +86,14 @@ class InstanceMgr final {
   void init();
 
   bool create_channel(const std::string& target_uri);
+  bool probe_instance_health(const std::string& instance_name);
+  void reconcile_instance_states();
+  void refresh_instance_registration(const std::string& name,
+                                     const InstanceMetaInfo& info);
+  void mark_instance_suspect(const std::string& name,
+                             const std::string& incarnation_id);
+  void clear_suspect_instance(const std::string& name,
+                              const std::string& incarnation_id = "");
   // use etcd as ServiceDiscovery
   void update_instance_metainfo(const etcd::Response& response,
                                 const uint64_t& prefix_len);
@@ -97,7 +109,8 @@ class InstanceMgr final {
   // Register a new instance with all necessary resources and connections
   bool register_instance(const std::string& name, InstanceMetaInfo& info);
   // Remove an instance and clean up its resources and connections
-  void deregister_instance(const std::string& name);
+  void deregister_instance(const std::string& name,
+                           const std::string& expected_incarnation_id = "");
   // Initialize internal resources for an instance (predictors, metrics)
   void add_instance_resources(const std::string& name,
                               const InstanceMetaInfo& info);
@@ -129,6 +142,11 @@ class InstanceMgr final {
 
   std::shared_mutex inst_mutex_;
   std::unordered_map<std::string, InstanceMetaInfo> instances_;
+  struct SuspectInstanceInfo {
+    std::string incarnation_id;
+    uint64_t enter_ts_ms = 0;
+  };
+  std::unordered_map<std::string, SuspectInstanceInfo> suspect_instances_;
   std::vector<std::string> prefill_index_;
   std::vector<std::string> decode_index_;
   uint64_t next_prefill_index_ = 0;
@@ -163,6 +181,7 @@ class InstanceMgr final {
   Scheduler* scheduler_;
 
   ThreadPool threadpool_;
+  std::unique_ptr<std::thread> state_reconcile_thread_;
 };
 
 }  // namespace xllm_service

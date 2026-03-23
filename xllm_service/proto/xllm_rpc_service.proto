@@ -41,6 +41,8 @@ message InstanceMetaInfo {
   repeated string addrs = 8;
   repeated string device_ips = 9;
   repeated uint32 ports = 10;
+  string incarnation_id = 11;
+  uint64 register_ts_ms = 12;
 }
 
 message KvCacheEvent {
@@ -64,6 +66,7 @@ message HeartbeatRequest {
   KvCacheEvent cache_event = 2;
   LoadMetrics load_metrics = 3;
   LatencyMetrics latency_metrics = 4;
+  string incarnation_id = 6;
 }
 
 message InstanceID {
@@ -150,4 +153,3 @@ service XllmRpcService {
   // This can eliminate the cost brought by forwarding through prefill.
   rpc Generations(DisaggStreamGenerations) returns (StatusSet) {}
 }
-

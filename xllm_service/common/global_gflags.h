@@ -57,6 +57,12 @@ DECLARE_string(load_balance_policy);
 
 DECLARE_int32(detect_disconnected_instance_interval);
 
+DECLARE_int32(instance_delete_probe_timeout_ms);
+
+DECLARE_int32(instance_delete_probe_attempts);
+
+DECLARE_int32(lease_lost_heartbeat_timeout_ms);
+
 DECLARE_int32(block_size);
 
 DECLARE_string(tokenizer_path);

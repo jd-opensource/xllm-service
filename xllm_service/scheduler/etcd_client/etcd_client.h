@@ -29,6 +29,12 @@ namespace xllm_service {
 
 using Callback = std::function<void(const etcd::Response&, const uint64_t&)>;
 
+std::string get_event_key(const etcd::Event& event);
+
+std::string get_event_value(const etcd::Event& event);
+
+std::string get_event_key_suffix(const etcd::Event& event, uint64_t prefix_len);
+
 class EtcdClient {
  public:
   EtcdClient(const std::string& etcd_addr);
