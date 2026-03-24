@@ -74,6 +74,11 @@ class Options {
 
   // trace options
   PROPERTY(bool, enable_request_trace) = false;
+
+  // parser options
+  PROPERTY(std::string, tool_call_parser);
+
+  PROPERTY(std::string, reasoning_parser);
 };
 
 }  // namespace xllm_service

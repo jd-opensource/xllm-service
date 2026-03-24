@@ -6,10 +6,46 @@ add_subdirectory(loadbalance_policy)
 
 cc_library(
   NAME
+    xllm_chat_parse_runtime
+  HDRS
+    xllm_chat_parse_bridge.h
+  SRCS
+    xllm_chat_parse_bridge.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/base_format_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/qwen25_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/kimik2_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/deepseekv3_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/glm45_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/glm47_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/function_call_parser.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/utils.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/partial_json_parser/src/parser.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/parser/reasoning_detector.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/parser/reasoning_parser.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/parser/detector_registry.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/api_service/stream_output_parser.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/core/util/uuid.cpp
+  INCLUDES
+    ${CMAKE_SOURCE_DIR}/third_party/xllm
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/core
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call
+    ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/partial_json_parser/include
+  DEPS
+    proto_xllm
+    absl::random_random
+    absl::strings
+    glog::glog
+    nlohmann_json::nlohmann_json
+)
+
+cc_library(
+  NAME
     scheduler
   HDRS
     response_handler.h
     scheduler.h
+    xllm_chat_parse_bridge.h
   SRCS
     response_handler.cpp
     scheduler.cpp
@@ -20,6 +56,7 @@ cc_library(
     :loadbalance_policy
     :managers
     :request
+    :xllm_chat_parse_runtime
     cpprest
     etcd-cpp-api
     glog::glog
