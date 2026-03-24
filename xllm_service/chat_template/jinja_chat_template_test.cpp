@@ -53,4 +53,24 @@ TEST(JinjaChatTemplate, OpenChatModel) {
   EXPECT_EQ(result.value(), expected);
 }
 
+TEST(JinjaChatTemplate, ApplyChatTemplateKwargs) {
+  const std::string template_str =
+      "{% if enable_thinking %}<think>{% endif %}"
+      "{% for message in messages %}{{ message['content'] }}{% endfor %}";
+
+  nlohmann::ordered_json messages = {{{"role", "user"}, {"content", "hello"}}};
+  nlohmann::ordered_json chat_template_kwargs = {{"enable_thinking", false}};
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  auto result = template_.apply(
+      messages, nlohmann::ordered_json::array(), chat_template_kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "hello");
+}
+
 }  // namespace xllm_service

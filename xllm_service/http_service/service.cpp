@@ -462,6 +462,10 @@ void XllmHttpServiceImpl::ChatCompletions(
     for (const auto& message : req_pb->messages()) {
       service_request->messages.emplace_back(message.role(), message.content());
     }
+    if (req_pb->has_chat_template_kwargs()) {
+      service_request->chat_template_kwargs =
+          proto_struct_to_json(req_pb->chat_template_kwargs());
+    }
     service_request->tools = parse_tools_from_proto(req_pb->tools());
     if (req_pb->has_tool_choice()) {
       service_request->tool_choice = req_pb->tool_choice();
