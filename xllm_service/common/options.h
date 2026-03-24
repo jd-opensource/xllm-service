@@ -60,6 +60,12 @@ class Options {
 
   PROPERTY(int32_t, detect_disconnected_instance_interval) = 15;
 
+  PROPERTY(int32_t, instance_delete_probe_timeout_ms) = 1000;
+
+  PROPERTY(int32_t, instance_delete_probe_attempts) = 2;
+
+  PROPERTY(int32_t, lease_lost_heartbeat_timeout_ms) = 3000;
+
   // scheduler options
   PROPERTY(std::string, load_balance_policy);
 

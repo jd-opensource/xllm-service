@@ -78,6 +78,25 @@ enum class InstanceType : int8_t {
   MIX = 3,
 };
 
+enum class InstanceRuntimeState : int8_t {
+  ACTIVE = 0,
+  LEASE_LOST = 1,
+  SUSPECT = 2,
+};
+
+inline const char* runtime_state_name(InstanceRuntimeState state) {
+  switch (state) {
+    case InstanceRuntimeState::ACTIVE:
+      return "ACTIVE";
+    case InstanceRuntimeState::LEASE_LOST:
+      return "LEASE_LOST";
+    case InstanceRuntimeState::SUSPECT:
+      return "SUSPECT";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 struct LoadMetrics {
   LoadMetrics() : waiting_requests_num(0), gpu_cache_usage_perc(0) {};
   LoadMetrics(const uint64_t& waiting_reqs_num, const float& usage)
@@ -170,6 +189,8 @@ struct InstanceMetaInfo {
 
   std::string name = "";
   std::string rpc_address = "";
+  std::string incarnation_id = "";
+  uint64_t register_ts_ms = 0;
   InstanceType type = InstanceType::DEFAULT;
   std::vector<uint64_t> cluster_ids;
   std::vector<std::string> addrs;
@@ -187,6 +208,9 @@ struct InstanceMetaInfo {
   // latest heatbeat timestamp
   uint64_t latest_timestamp = 0;
 
+  // Runtime-only instance state, not persisted to etcd.
+  InstanceRuntimeState runtime_state = InstanceRuntimeState::ACTIVE;
+
   uint64_t instance_index = -1;
 
   // Used to indicate the exact instance type of a MIX type instance currently,
@@ -197,6 +221,8 @@ struct InstanceMetaInfo {
     nlohmann::json json_val;
     json_val["name"] = name;
     json_val["rpc_address"] = rpc_address;
+    json_val["incarnation_id"] = incarnation_id;
+    json_val["register_ts_ms"] = register_ts_ms;
     json_val["type"] = int8_t(type);
     json_val["addrs"] = addrs;
     json_val["cluster_ids"] = cluster_ids;
@@ -217,7 +243,17 @@ struct InstanceMetaInfo {
       nlohmann::json json_value = nlohmann::json::parse(json_str);
       name = json_value.at("name").get<std::string>();
       rpc_address = json_value.at("rpc_address").get<std::string>();
+      incarnation_id = json_value.value("incarnation_id", std::string());
+      register_ts_ms = json_value.value("register_ts_ms", uint64_t(0));
       type = static_cast<InstanceType>(json_value.at("type").get<int8_t>());
+      cluster_ids.clear();
+      addrs.clear();
+      k_cache_ids.clear();
+      v_cache_ids.clear();
+      device_ips.clear();
+      ports.clear();
+      ttft_profiling_data.clear();
+      tpot_profiling_data.clear();
 
       for (const auto& item :
            json_value.at("cluster_ids").get<std::vector<uint64_t>>()) {
@@ -255,6 +291,7 @@ struct InstanceMetaInfo {
         }
       }
 
+      runtime_state = InstanceRuntimeState::ACTIVE;
       set_init_timestamp();
     } catch (const std::exception& e) {
       LOG(ERROR) << "json str:" << json_str

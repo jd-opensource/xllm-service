@@ -57,6 +57,8 @@ struct Request {
 
   // instance routing
   Routing routing;
+  std::string prefill_incarnation_id;
+  std::string decode_incarnation_id;
 
   // prefill stage finished
   bool prefill_stage_finished = false;

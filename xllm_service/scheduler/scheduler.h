@@ -49,7 +49,7 @@ class Scheduler final {
   std::vector<std::string> get_static_prefill_list(
       const std::string& instance_name);
 
-  void handle_instance_heartbeat(const proto::HeartbeatRequest* req);
+  bool handle_instance_heartbeat(const proto::HeartbeatRequest* req);
 
   void exited() { exited_ = true; }
 
@@ -64,6 +64,7 @@ class Scheduler final {
                       bool error = false);
 
   void clear_requests_on_failed_instance(const std::string& instance_name,
+                                         const std::string& incarnation_id,
                                          InstanceType type);
 
   // handle generations from prefill/decode instance

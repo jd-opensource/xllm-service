@@ -32,8 +32,8 @@ XllmRpcServiceImpl::XllmRpcServiceImpl(const Options& options,
 
 XllmRpcServiceImpl::~XllmRpcServiceImpl() { scheduler_->exited(); }
 
-void XllmRpcServiceImpl::heartbeat(const proto::HeartbeatRequest* req) {
-  scheduler_->handle_instance_heartbeat(req);
+bool XllmRpcServiceImpl::heartbeat(const proto::HeartbeatRequest* req) {
+  return scheduler_->handle_instance_heartbeat(req);
 }
 
 InstanceMetaInfo XllmRpcServiceImpl::get_instance_info(
@@ -80,6 +80,8 @@ void XllmRpcService::GetInstanceInfo(google::protobuf::RpcController* cntl_base,
       xllm_rpc_service_impl_->get_instance_info(req->name());
   resp->set_name(metainfo.name);
   resp->set_rpc_address(metainfo.rpc_address);
+  resp->set_incarnation_id(metainfo.incarnation_id);
+  resp->set_register_ts_ms(metainfo.register_ts_ms);
   if (metainfo.type == InstanceType::PREFILL) {
     resp->set_type(proto::InstanceType::PREFILL);
   } else if (metainfo.type == InstanceType::DECODE) {
@@ -115,8 +117,7 @@ void XllmRpcService::Heartbeat(google::protobuf::RpcController* cntl_base,
                                proto::Status* resp,
                                google::protobuf::Closure* done) {
   brpc::ClosureGuard done_guard(done);
-  xllm_rpc_service_impl_->heartbeat(req);
-  resp->set_ok(true);
+  resp->set_ok(xllm_rpc_service_impl_->heartbeat(req));
 }
 
 void XllmRpcService::GetStaticDecodeList(

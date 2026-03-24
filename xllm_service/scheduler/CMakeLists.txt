@@ -32,6 +32,7 @@ cc_library(
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call
     ${CMAKE_SOURCE_DIR}/third_party/xllm/xllm/function_call/partial_json_parser/include
   DEPS
+    :common
     proto_xllm
     absl::random_random
     absl::strings

@@ -192,6 +192,9 @@ int main(int argc, char* argv[]) {
                     std::to_string(FLAGS_rpc_server_port))
       .detect_disconnected_instance_interval(
           FLAGS_detect_disconnected_instance_interval)
+      .instance_delete_probe_timeout_ms(FLAGS_instance_delete_probe_timeout_ms)
+      .instance_delete_probe_attempts(FLAGS_instance_delete_probe_attempts)
+      .lease_lost_heartbeat_timeout_ms(FLAGS_lease_lost_heartbeat_timeout_ms)
       .enable_request_trace(FLAGS_enable_request_trace)
       .block_size(FLAGS_block_size)
       .tokenizer_path(FLAGS_tokenizer_path)

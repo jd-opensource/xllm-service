@@ -21,6 +21,37 @@ limitations under the License.
 
 namespace xllm_service {
 
+std::string get_event_key(const etcd::Event& event) {
+  if (event.event_type() == etcd::Event::EventType::DELETE_ &&
+      event.has_prev_kv()) {
+    return event.prev_kv().key();
+  }
+  if (event.has_kv()) {
+    return event.kv().key();
+  }
+  return "";
+}
+
+std::string get_event_value(const etcd::Event& event) {
+  if (event.event_type() == etcd::Event::EventType::DELETE_ &&
+      event.has_prev_kv()) {
+    return event.prev_kv().as_string();
+  }
+  if (event.has_kv()) {
+    return event.kv().as_string();
+  }
+  return "";
+}
+
+std::string get_event_key_suffix(const etcd::Event& event,
+                                 uint64_t prefix_len) {
+  const auto key = get_event_key(event);
+  if (key.size() < prefix_len) {
+    return "";
+  }
+  return key.substr(prefix_len);
+}
+
 EtcdClient::EtcdClient(const std::string& etcd_addr)
     : client_(etcd_addr), etcd_addr_(etcd_addr) {
   LOG(INFO) << "EtcdClient init put start!";
