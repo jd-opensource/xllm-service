@@ -52,6 +52,9 @@ struct Request {
   // controls tool usage behavior, e.g. auto/none/required
   std::string tool_choice = "auto";
 
+  // extra template context such as {"enable_thinking": false}
+  nlohmann::json chat_template_kwargs = nlohmann::json::object();
+
   // token ids of prompt
   std::vector<int32_t> token_ids;
 

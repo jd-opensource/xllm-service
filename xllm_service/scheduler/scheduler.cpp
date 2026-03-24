@@ -97,7 +97,8 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
     const std::vector<JsonTool> empty_tools;
     const std::vector<JsonTool>& tools_for_template =
         request->tool_choice == "none" ? empty_tools : request->tools;
-    auto prompt = chat_template_->apply(request->messages, tools_for_template);
+    auto prompt = chat_template_->apply(
+        request->messages, tools_for_template, request->chat_template_kwargs);
     if (!prompt.has_value()) {
       LOG(ERROR) << "Failed to construct prompt from messages";
       return false;
