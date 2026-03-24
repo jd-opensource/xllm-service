@@ -24,9 +24,11 @@ limitations under the License.
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/global_gflags.h"
@@ -147,29 +149,35 @@ InstanceMgr::InstanceMgr(const Options& options,
 
 void InstanceMgr::init() {
   std::unordered_map<std::string, InstanceMetaInfo> loaded_instances;
-  {
-    std::unique_lock<std::shared_mutex> lock(inst_mutex_);
-    for (auto& it : ETCD_KEYS_PREFIX_MAP) {
-      etcd_client_->get_prefix(it.second, &loaded_instances);
-    }
-    LOG(INFO) << "Load instance info from etcd:" << loaded_instances.size();
+  for (auto& it : ETCD_KEYS_PREFIX_MAP) {
+    etcd_client_->get_prefix(it.second, &loaded_instances);
+  }
+  LOG(INFO) << "Load instance info from etcd:" << loaded_instances.size();
 
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
     prefill_index_.reserve(loaded_instances.size());
     decode_index_.reserve(loaded_instances.size());
+  }
 
-    for (auto& pair : loaded_instances) {
-      if (!register_instance(pair.first, pair.second)) {
-        LOG(ERROR) << "Fail to register instance: " << pair.first;
-      }
+  for (auto& pair : loaded_instances) {
+    if (!register_instance(pair.first, pair.second)) {
+      LOG(ERROR) << "Fail to register instance: " << pair.first;
     }
   }
+
+  std::unordered_map<std::string, LoadMetrics> loaded_metrics;
+  etcd_client_->get_prefix(ETCD_LOADMETRICS_PREFIX, &loaded_metrics);
   {
-    std::unique_lock<std::shared_mutex> lock(load_metric_mutex_);
-    etcd_client_->get_prefix(ETCD_LOADMETRICS_PREFIX, &load_metrics_);
+    std::unique_lock<std::shared_mutex> lock(metrics_mutex_);
+    load_metrics_ = std::move(loaded_metrics);
   }
 
-  for (int i = 0; i < prefill_index_.size(); i++) {
-    LOG(INFO) << i << " : " << prefill_index_[i];
+  {
+    std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
+    for (int i = 0; i < prefill_index_.size(); i++) {
+      LOG(INFO) << i << " : " << prefill_index_[i];
+    }
   }
 }
 
@@ -182,7 +190,7 @@ InstanceMgr::~InstanceMgr() {
 
 InstanceMetaInfo InstanceMgr::get_instance_info(
     const std::string& instance_name) {
-  std::shared_lock<std::shared_mutex> lock(inst_mutex_);
+  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
   if (instances_.find(instance_name) == instances_.end()) {
     LOG(ERROR) << "Get instance info failed, instance is not registered, "
                   "instance_name: "
@@ -193,7 +201,7 @@ InstanceMetaInfo InstanceMgr::get_instance_info(
 }
 
 bool InstanceMgr::get_next_instance_pair(Routing* routing) {
-  std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+  std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
   if (prefill_index_.empty()) {
     LOG(ERROR) << "No prefill or default instance found!";
     return false;
@@ -234,7 +242,7 @@ bool InstanceMgr::get_next_instance_pair(Routing* routing) {
 std::vector<std::string> InstanceMgr::get_static_decode_list(
     const std::string& instance_name) {
   std::vector<std::string> decode_list;
-  std::shared_lock<std::shared_mutex> lock(inst_mutex_);
+  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
   for (auto& inst : instances_) {
     if (inst.second.type == InstanceType::DECODE &&
         is_instance_schedulable(inst.second)) {
@@ -249,7 +257,7 @@ std::vector<std::string> InstanceMgr::get_static_decode_list(
 std::vector<std::string> InstanceMgr::get_static_prefill_list(
     const std::string& instance_name) {
   std::vector<std::string> prefill_list;
-  std::shared_lock<std::shared_mutex> lock(inst_mutex_);
+  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
   for (auto& inst : instances_) {
     if ((inst.second.type == InstanceType::PREFILL ||
          inst.second.type == InstanceType::DEFAULT) &&
@@ -262,8 +270,8 @@ std::vector<std::string> InstanceMgr::get_static_prefill_list(
 }
 
 void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
-  std::shared_lock<std::shared_mutex> inst_lock(inst_mutex_);
-  std::shared_lock<std::shared_mutex> metric_lock(load_metric_mutex_);
+  std::shared_lock<std::shared_mutex> inst_lock(cluster_mutex_);
+  std::shared_lock<std::shared_mutex> metric_lock(metrics_mutex_);
 
   for (auto name : infos->overlap_scores.instances) {
     auto it = load_metrics_.find(name);
@@ -338,7 +346,7 @@ void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
 void InstanceMgr::record_load_metrics_update(
     const std::string& instance_name,
     const proto::LoadMetrics& load_metrics) {
-  std::lock_guard<std::mutex> lock(update_mutex_);
+  std::unique_lock<std::shared_mutex> lock(metrics_mutex_);
 
   updated_metrics_.insert_or_assign(
       instance_name,
@@ -347,22 +355,24 @@ void InstanceMgr::record_load_metrics_update(
 }
 
 bool InstanceMgr::upload_load_metrics() {
-  std::lock_guard<std::mutex> lock(update_mutex_);
-  bool status = etcd_client_->set(ETCD_LOADMETRICS_PREFIX, updated_metrics_);
-  status =
-      status && etcd_client_->rm(ETCD_LOADMETRICS_PREFIX, removed_instance_);
+  std::unordered_map<std::string, LoadMetrics> upload_snapshot;
+  std::unordered_set<std::string> remove_snapshot;
   {
-    std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+    std::unique_lock<std::shared_mutex> lk(metrics_mutex_);
     for (auto& iter : updated_metrics_) {
-      load_metrics_.insert_or_assign(iter.first, std::move(iter.second));
+      load_metrics_.insert_or_assign(iter.first, iter.second);
     }
     for (auto& iter : removed_instance_) {
       load_metrics_.erase(iter);
     }
+    upload_snapshot = updated_metrics_;
+    remove_snapshot = removed_instance_;
+    updated_metrics_.clear();
+    removed_instance_.clear();
   }
-  updated_metrics_.clear();
-  removed_instance_.clear();
-
+  bool status = etcd_client_->set(ETCD_LOADMETRICS_PREFIX, upload_snapshot);
+  status =
+      status && etcd_client_->rm(ETCD_LOADMETRICS_PREFIX, remove_snapshot);
   return status;
 }
 
@@ -373,7 +383,7 @@ void InstanceMgr::set_as_master() {
 
 std::shared_ptr<brpc::Channel> InstanceMgr::get_channel(
     const std::string& instance_name) {
-  std::shared_lock<std::shared_mutex> lock(inst_mutex_);
+  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
   auto iter = cached_channels_.find(instance_name);
   if (iter == cached_channels_.end()) {
     return nullptr;
@@ -383,7 +393,7 @@ std::shared_ptr<brpc::Channel> InstanceMgr::get_channel(
 
 bool InstanceMgr::bind_request_instance_incarnations(
     const std::shared_ptr<Request>& request) {
-  std::shared_lock<std::shared_mutex> lock(inst_mutex_);
+  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
 
   // Bind the selected routing to a concrete incarnation before dispatch.
   request->prefill_incarnation_id.clear();
@@ -426,7 +436,7 @@ bool InstanceMgr::bind_request_instance_incarnations(
 
 bool InstanceMgr::record_instance_heartbeat(const std::string& instance_name,
                                             const std::string& incarnation_id) {
-  std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+  std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
   auto it = instances_.find(instance_name);
   if (it == instances_.end()) {
     LOG(WARNING) << "Ignore heartbeat from unknown instance: " << instance_name;
@@ -453,24 +463,23 @@ bool InstanceMgr::record_instance_heartbeat(const std::string& instance_name,
   return true;
 }
 
-bool InstanceMgr::create_channel(const std::string& instance_name) {
-  if (cached_channels_.find(instance_name) == cached_channels_.end()) {
-    auto channel = std::make_shared<brpc::Channel>();
-    brpc::ChannelOptions options;
-    // Add to params
-    // options.protocol = "http";
-    options.timeout_ms = options_.timeout_ms(); /*milliseconds*/
-    options.max_retry = 3;
-    options.connect_timeout_ms = options_.connect_timeout_ms();
-    std::string load_balancer = "";
-    if (channel->Init(instance_name.c_str(), load_balancer.c_str(), &options) !=
-        0) {
-      LOG(ERROR) << "Fail to initialize channel for " << instance_name;
-      return false;
-    }
-    cached_channels_[instance_name] = std::move(channel);
+bool InstanceMgr::init_brpc_channel(
+    const std::string& instance_name,
+    std::shared_ptr<brpc::Channel>* out_channel) {
+  auto channel = std::make_shared<brpc::Channel>();
+  brpc::ChannelOptions options;
+  // Add to params
+  // options.protocol = "http";
+  options.timeout_ms = options_.timeout_ms(); /*milliseconds*/
+  options.max_retry = 3;
+  options.connect_timeout_ms = options_.connect_timeout_ms();
+  std::string load_balancer = "";
+  if (channel->Init(instance_name.c_str(), load_balancer.c_str(), &options) !=
+      0) {
+    LOG(ERROR) << "Fail to initialize channel for " << instance_name;
+    return false;
   }
-
+  *out_channel = std::move(channel);
   return true;
 }
 
@@ -538,9 +547,11 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
           LOG(ERROR) << "Parse instance json failed: " << json_str;
           continue;
         }
-        std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+
+        std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
         auto existing_it = instances_.find(instance_name);
         if (existing_it == instances_.end()) {
+          lock.unlock();
           if (!register_instance(instance_name, metainfo)) {
             LOG(ERROR) << "Fail to register instance: " << instance_name;
           }
@@ -567,6 +578,7 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
                      << instance_name
                      << ", old incarnation_id: " << old_incarnation_id
                      << ", new incarnation_id: " << metainfo.incarnation_id;
+        lock.unlock();
         deregister_instance(instance_name, old_incarnation_id);
         if (!register_instance(instance_name, metainfo)) {
           LOG(ERROR) << "Fail to register replacement instance: "
@@ -588,7 +600,7 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
       }
       std::string tracked_incarnation_id;
       {
-        std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+        std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
         auto existing_it = instances_.find(instance_name);
         if (existing_it == instances_.end()) {
           continue;
@@ -610,7 +622,7 @@ void InstanceMgr::update_instance_metainfo(const etcd::Response& response,
       // and later heartbeats or PUT events to drive recovery.
       const bool probe_success = probe_instance_health(instance_name);
 
-      std::unique_lock<std::shared_mutex> lock(inst_mutex_);
+      std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
       auto existing_it = instances_.find(instance_name);
       if (existing_it == instances_.end() ||
           existing_it->second.incarnation_id != tracked_incarnation_id) {
@@ -667,7 +679,7 @@ void InstanceMgr::update_load_metrics(const etcd::Response& response,
     }
 
     {
-      std::unique_lock<std::shared_mutex> lock(load_metric_mutex_);
+      std::unique_lock<std::shared_mutex> lock(metrics_mutex_);
       for (auto& iter : put_map) {
         load_metrics_.insert_or_assign(iter.first, std::move(iter.second));
       }
@@ -682,7 +694,7 @@ void InstanceMgr::update_load_metrics(const etcd::Response& response,
 void InstanceMgr::update_latency_metrics(
     const std::string& instance_name,
     const proto::LatencyMetrics& latency_metrics) {
-  std::lock_guard<std::mutex> lock(latency_metrics_mutex_);
+  std::unique_lock<std::shared_mutex> lock(metrics_mutex_);
 
   latency_metrics_.insert_or_assign(
       instance_name,
@@ -699,48 +711,56 @@ void InstanceMgr::reconcile_instance_states() {
   while (!exited_) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-    std::unique_lock<std::shared_mutex> lock(inst_mutex_);
-    if (exited_) {
-      return;
+    std::vector<std::pair<std::string, std::string>> to_deregister;
+
+    {
+      std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+      if (exited_) {
+        return;
+      }
+
+      const uint64_t now_ms = current_time_ms();
+      for (auto& [instance_name, info] : instances_) {
+        // LEASE_LOST is a grace period after etcd delete but before hard
+        // eviction.
+        if (info.runtime_state != InstanceRuntimeState::LEASE_LOST) {
+          continue;
+        }
+        if (now_ms - info.latest_timestamp < heartbeat_timeout_ms) {
+          continue;
+        }
+        mark_instance_suspect(instance_name, info.incarnation_id);
+        LOG(WARNING) << "Lease lost instance heartbeat timed out, enter suspect "
+                     << "state: " << instance_name
+                     << ", incarnation_id: " << info.incarnation_id;
+      }
+
+      for (auto it = suspect_instances_.begin();
+           it != suspect_instances_.end();) {
+        const std::string instance_name = it->first;
+        const std::string incarnation_id = it->second.incarnation_id;
+        const uint64_t enter_ts_ms = it->second.enter_ts_ms;
+        ++it;
+
+        if (now_ms - enter_ts_ms < suspect_interval_ms) {
+          continue;
+        }
+
+        auto inst_it = instances_.find(instance_name);
+        if (inst_it == instances_.end() ||
+            inst_it->second.incarnation_id != incarnation_id) {
+          suspect_instances_.erase(instance_name);
+          continue;
+        }
+
+        LOG(WARNING) << "Suspect window expired, deregister instance: "
+                     << instance_name << ", incarnation_id: " << incarnation_id;
+        to_deregister.emplace_back(instance_name, incarnation_id);
+      }
     }
 
-    const uint64_t now_ms = current_time_ms();
-    for (auto& [instance_name, info] : instances_) {
-      // LEASE_LOST is a grace period after etcd delete but before hard
-      // eviction.
-      if (info.runtime_state != InstanceRuntimeState::LEASE_LOST) {
-        continue;
-      }
-      if (now_ms - info.latest_timestamp < heartbeat_timeout_ms) {
-        continue;
-      }
-      mark_instance_suspect(instance_name, info.incarnation_id);
-      LOG(WARNING) << "Lease lost instance heartbeat timed out, enter suspect "
-                   << "state: " << instance_name
-                   << ", incarnation_id: " << info.incarnation_id;
-    }
-
-    for (auto it = suspect_instances_.begin();
-         it != suspect_instances_.end();) {
-      const std::string instance_name = it->first;
-      const std::string incarnation_id = it->second.incarnation_id;
-      const uint64_t enter_ts_ms = it->second.enter_ts_ms;
-      ++it;
-
-      if (now_ms - enter_ts_ms < suspect_interval_ms) {
-        continue;
-      }
-
-      auto inst_it = instances_.find(instance_name);
-      if (inst_it == instances_.end() ||
-          inst_it->second.incarnation_id != incarnation_id) {
-        suspect_instances_.erase(instance_name);
-        continue;
-      }
-
-      LOG(WARNING) << "Suspect window expired, deregister instance: "
-                   << instance_name << ", incarnation_id: " << incarnation_id;
-      deregister_instance(instance_name, incarnation_id);
+    for (const auto& p : to_deregister) {
+      deregister_instance(p.first, p.second);
     }
   }
 }
@@ -794,89 +814,83 @@ void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
     return;
   }
 
-  bool need_flip_decode_to_prefill = false;
-  {
-    std::lock_guard<std::mutex> lock(request_metrics_mutex_);
+  std::scoped_lock<std::shared_mutex, std::shared_mutex> lock(
+      cluster_mutex_, metrics_mutex_);
 
-    auto prefill_it = request_metrics_.find(request->routing.prefill_name);
-    if (prefill_it == request_metrics_.end()) {
-      LOG(ERROR) << "Failed to find instance request metrics, instance name : "
-                 << request->routing.prefill_name;
-      return;
-    }
-
-    auto decode_it = request_metrics_.find(request->routing.decode_name);
-    if (decode_it == request_metrics_.end()) {
-      LOG(ERROR) << "Failed to find instance request metrics, instance name : "
-                 << request->routing.decode_name;
-      return;
-    }
-
-    int64_t num_prompt_tokens = request->token_ids.size();
-    int64_t num_generated_tokens = request->num_generated_tokens;
-    switch (action) {
-      case RequestAction::SCHEDULE:
-        // update the request metrics for prefill and decode instances when
-        // request is scheduled
-        prefill_it->second.prefill_request_num += 1;
-        prefill_it->second.prefill_token_num += num_prompt_tokens;
-
-        decode_it->second.decode_request_num += 1;
-        decode_it->second.decode_token_num += num_prompt_tokens;
-        break;
-      case RequestAction::FINISH_PREFILL:
-        // update the request metrics for prefill and decode instance when
-        // request finishes the prefill phase
-        prefill_it->second.prefill_request_num -= 1;
-        prefill_it->second.prefill_token_num -= num_prompt_tokens;
-        prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
-
-        decode_it->second.decode_token_num += 1;
-        break;
-      case RequestAction::GENERATE:
-        // update the request metrics for decode instance when request generate
-        // a token
-        decode_it->second.decode_token_num += 1;
-        break;
-      case RequestAction::FINISH_DECODE:
-        // update the request metrics for decode instance when request finishes
-        // the decode phase
-        decode_it->second.decode_request_num -= 1;
-        decode_it->second.decode_token_num -=
-            (num_prompt_tokens + num_generated_tokens);
-
-        break;
-      case RequestAction::CANCEL:
-        // update the request metrics for prefill and decode instances when
-        // request is cancelled
-        prefill_it->second.prefill_request_num -= 1;
-        prefill_it->second.prefill_token_num -= num_prompt_tokens;
-        prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
-
-        decode_it->second.decode_request_num -= 1;
-        decode_it->second.decode_token_num -=
-            (num_prompt_tokens + num_generated_tokens);
-
-        break;
-      default:
-        LOG(ERROR) << "Unknown RequestAction: " << static_cast<int32_t>(action);
-        break;
-    }
-
-    // Defer index mutation until after releasing request_metrics_mutex_.
-    need_flip_decode_to_prefill = decode_it->second.decode_request_num == 0;
+  auto prefill_it = request_metrics_.find(request->routing.prefill_name);
+  if (prefill_it == request_metrics_.end()) {
+    LOG(ERROR) << "Failed to find instance request metrics, instance name : "
+               << request->routing.prefill_name;
+    return;
   }
 
-  if (need_flip_decode_to_prefill) {
-    std::unique_lock<std::shared_mutex> instance_lock(inst_mutex_);
+  auto decode_it = request_metrics_.find(request->routing.decode_name);
+  if (decode_it == request_metrics_.end()) {
+    LOG(ERROR) << "Failed to find instance request metrics, instance name : "
+               << request->routing.decode_name;
+    return;
+  }
+
+  int64_t num_prompt_tokens = request->token_ids.size();
+  int64_t num_generated_tokens = request->num_generated_tokens;
+  switch (action) {
+    case RequestAction::SCHEDULE:
+      // update the request metrics for prefill and decode instances when
+      // request is scheduled
+      prefill_it->second.prefill_request_num += 1;
+      prefill_it->second.prefill_token_num += num_prompt_tokens;
+
+      decode_it->second.decode_request_num += 1;
+      decode_it->second.decode_token_num += num_prompt_tokens;
+      break;
+    case RequestAction::FINISH_PREFILL:
+      // update the request metrics for prefill and decode instance when request
+      // finishes the prefill phase
+      prefill_it->second.prefill_request_num -= 1;
+      prefill_it->second.prefill_token_num -= num_prompt_tokens;
+      prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
+
+      decode_it->second.decode_token_num += 1;
+      break;
+    case RequestAction::GENERATE:
+      // update the request metrics for decode instance when request generate a
+      // token
+      decode_it->second.decode_token_num += 1;
+      break;
+    case RequestAction::FINISH_DECODE:
+      // update the request metrics for decode instance when request finishes
+      // the decode phase
+      decode_it->second.decode_request_num -= 1;
+      decode_it->second.decode_token_num -=
+          (num_prompt_tokens + num_generated_tokens);
+
+      break;
+    case RequestAction::CANCEL:
+      // update the request metrics for prefill and decode instances when
+      // request is cancelled
+      prefill_it->second.prefill_request_num -= 1;
+      prefill_it->second.prefill_token_num -= num_prompt_tokens;
+      prefill_it->second.estimated_prefill_time -= request->estimated_ttft;
+
+      decode_it->second.decode_request_num -= 1;
+      decode_it->second.decode_token_num -=
+          (num_prompt_tokens + num_generated_tokens);
+
+      break;
+    default:
+      LOG(ERROR) << "Unknown RequestAction: " << static_cast<int32_t>(action);
+      break;
+  }
+
+  if (decode_it->second.decode_request_num == 0) {
     flip_decode_to_prefill(request->routing.decode_name);
   }
 }
 
 bool InstanceMgr::select_instance_pair_on_slo(
     std::shared_ptr<Request> request) {
-  std::unique_lock<std::shared_mutex> lock(inst_mutex_);
-  std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+  std::scoped_lock<std::shared_mutex, std::shared_mutex> lock(
+      cluster_mutex_, metrics_mutex_);
   const bool has_unschedulable_instances = !suspect_instances_.empty();
 
   std::string min_prefill_instance;
@@ -1035,8 +1049,6 @@ void InstanceMgr::flip_decode_to_prefill(std::string& instance_name) {
 
 TimePredictor& InstanceMgr::get_time_predictor(
     const std::string& instance_name) {
-  std::lock_guard<std::mutex> lock(time_predictor_mutex_);
-
   auto it = time_predictors_.find(instance_name);
   if (it == time_predictors_.end()) {
     LOG(FATAL) << "Find TimePredictor failed, instance name : "
@@ -1129,57 +1141,116 @@ bool InstanceMgr::register_instance(const std::string& name,
                                     InstanceMetaInfo& info) {
   info.runtime_state = InstanceRuntimeState::ACTIVE;
   info.latest_timestamp = current_time_ms();
-  if (!create_channel(name)) {
+  info.name = name;
+
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+    if (instances_.find(name) != instances_.end() ||
+        cached_channels_.find(name) != cached_channels_.end()) {
+      LOG(ERROR) << "Instance is already registered, instance_name: " << name;
+      return false;
+    }
+  }
+
+  std::shared_ptr<brpc::Channel> channel;
+  if (!init_brpc_channel(name, &channel)) {
     LOG(ERROR) << "create channel fail: " << name;
     return false;
   }
 
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+    if (instances_.find(name) != instances_.end() ||
+        cached_channels_.find(name) != cached_channels_.end()) {
+      LOG(WARNING) << "Instance registered concurrently during channel init: "
+                   << name;
+      return false;
+    }
+    cached_channels_[name] = std::move(channel);
+  }
+
   add_instance_resources(name, info);
 
-  if (!link_instance_internal(name, info)) {
+  std::vector<std::pair<std::string, InstanceMetaInfo>> link_ops;
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+    if (!gather_link_operations(info, &link_ops)) {
+      remove_instance_resources(name);
+      return false;
+    }
+  }
+
+  if (!run_link_operations(link_ops)) {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
     remove_instance_resources(name);
     return false;
   }
 
-  add_instance_to_index(name, info);
-  instances_.insert(std::make_pair(name, info));
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+    add_instance_to_index(name, info);
+    instances_.insert(std::make_pair(name, info));
+  }
   return true;
 }
 
 void InstanceMgr::deregister_instance(
     const std::string& name,
     const std::string& expected_incarnation_id) {
-  auto it = instances_.find(name);
-  if (it == instances_.end()) {
-    LOG(ERROR) << "Instance is not registered, instance_name: " << name;
-    return;
+  InstanceMetaInfo info;
+  std::vector<std::pair<std::string, InstanceMetaInfo>> unlink_ops;
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+    auto it = instances_.find(name);
+    if (it == instances_.end()) {
+      LOG(ERROR) << "Instance is not registered, instance_name: " << name;
+      return;
+    }
+
+    if (!expected_incarnation_id.empty() &&
+        it->second.incarnation_id != expected_incarnation_id) {
+      LOG(INFO) << "Skip deregistering stale incarnation, instance_name: " << name
+                << ", current incarnation_id: " << it->second.incarnation_id
+                << ", expected incarnation_id: " << expected_incarnation_id;
+      return;
+    }
+
+    info = it->second;
+    clear_suspect_instance(name, info.incarnation_id);
+    gather_unlink_operations(name, info, &unlink_ops);
   }
 
-  if (!expected_incarnation_id.empty() &&
-      it->second.incarnation_id != expected_incarnation_id) {
-    LOG(INFO) << "Skip deregistering stale incarnation, instance_name: " << name
-              << ", current incarnation_id: " << it->second.incarnation_id
-              << ", expected incarnation_id: " << expected_incarnation_id;
-    return;
+  for (const auto& op : unlink_ops) {
+    call_unlink_instance(op.first, op.second);
   }
 
-  const auto& info = it->second;
-  clear_suspect_instance(name, info.incarnation_id);
-  unlink_instance_internal(name, info);
-  remove_instance_from_index(name, info);
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+    auto it = instances_.find(name);
+    if (it == instances_.end()) {
+      return;
+    }
+    remove_instance_from_index(name, it->second);
+  }
 
   scheduler_->clear_requests_on_failed_instance(
       name, info.incarnation_id, get_cleanup_type(info));
 
-  remove_instance_resources(name);
-  instances_.erase(it);
+  {
+    std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
+    auto it = instances_.find(name);
+    if (it == instances_.end()) {
+      return;
+    }
+    remove_instance_resources(name);
+    instances_.erase(it);
+  }
   LOG(INFO) << "delete instance: " << name;
 }
 
 void InstanceMgr::add_instance_resources(const std::string& name,
                                          const InstanceMetaInfo& info) {
-  std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
-  std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
+  std::unique_lock<std::shared_mutex> lock(metrics_mutex_);
 
   time_predictors_.insert_or_assign(
       name, TimePredictor(info.ttft_profiling_data, info.tpot_profiling_data));
@@ -1188,68 +1259,42 @@ void InstanceMgr::add_instance_resources(const std::string& name,
 }
 
 void InstanceMgr::remove_instance_resources(const std::string& name) {
+  // Caller must hold cluster_mutex_ (cached_channels_ is L1).
   cached_channels_.erase(name);
-  {
-    std::lock_guard<std::mutex> time_predictor_lock(time_predictor_mutex_);
-    std::lock_guard<std::mutex> request_metrics_lock(request_metrics_mutex_);
-    time_predictors_.erase(name);
-    request_metrics_.erase(name);
-  }
-  {
-    std::lock_guard<std::mutex> lock(latency_metrics_mutex_);
-    latency_metrics_.erase(name);
-  }
-  {
-    std::lock_guard<std::mutex> lock(update_mutex_);
-    updated_metrics_.erase(name);
-    removed_instance_.insert(name);
-  }
-  {
-    std::unique_lock<std::shared_mutex> lock(load_metric_mutex_);
-    load_metrics_.erase(name);
-  }
+  std::unique_lock<std::shared_mutex> lock(metrics_mutex_);
+  time_predictors_.erase(name);
+  request_metrics_.erase(name);
+  latency_metrics_.erase(name);
+  updated_metrics_.erase(name);
+  removed_instance_.insert(name);
+  load_metrics_.erase(name);
 }
 
-bool InstanceMgr::link_instance_internal(const std::string& name,
-                                         InstanceMetaInfo& info) {
-  bool link_ok = true;
-  int32_t linked_p_count = 0;
-  int32_t linked_d_count = 0;
-  std::vector<std::string> linked_mix_names;
-
+bool InstanceMgr::gather_link_operations(
+    const InstanceMetaInfo& info,
+    std::vector<std::pair<std::string, InstanceMetaInfo>>* out_ops) {
+  out_ops->clear();
   switch (info.type) {
     case InstanceType::DEFAULT:
       break;
     case InstanceType::PREFILL: {
       for (auto& d_name : decode_index_) {
-        if (!call_link_instance(instances_[d_name].rpc_address, info)) {
-          link_ok = false;
-          break;
-        }
-        linked_d_count++;
+        out_ops->emplace_back(instances_[d_name].rpc_address, info);
       }
       break;
     }
     case InstanceType::DECODE: {
       for (auto& p_name : prefill_index_) {
-        if (!call_link_instance(info.rpc_address, instances_[p_name])) {
-          link_ok = false;
-          break;
-        }
-        linked_p_count++;
+        out_ops->emplace_back(info.rpc_address, instances_[p_name]);
       }
       break;
     }
     case InstanceType::MIX: {
       for (const auto& [peer_name, peer_info] : instances_) {
-        if (peer_name == name) {
+        if (peer_name == info.name) {
           continue;
         }
-        if (!call_link_instance(info.rpc_address, peer_info)) {
-          link_ok = false;
-          break;
-        }
-        linked_mix_names.emplace_back(peer_name);
+        out_ops->emplace_back(info.rpc_address, peer_info);
       }
       break;
     }
@@ -1257,50 +1302,42 @@ bool InstanceMgr::link_instance_internal(const std::string& name,
       LOG(WARNING) << "Unknown InstanceType: " << int(info.type);
       return false;
   }
-
-  if (!link_ok) {
-    LOG(ERROR) << "Fail to link instance during registration, instance: "
-               << name;
-    // Rollback
-    if (info.type == InstanceType::PREFILL) {
-      for (int i = 0; i < linked_d_count; i++) {
-        call_unlink_instance(instances_[decode_index_[i]].rpc_address, info);
-      }
-    } else if (info.type == InstanceType::DECODE) {
-      for (int i = 0; i < linked_p_count; i++) {
-        call_unlink_instance(info.rpc_address, instances_[prefill_index_[i]]);
-      }
-    } else if (info.type == InstanceType::MIX) {
-      for (const auto& linked_name : linked_mix_names) {
-        auto it = instances_.find(linked_name);
-        if (it == instances_.end()) {
-          continue;
-        }
-        call_unlink_instance(info.rpc_address, it->second);
-      }
-    }
-    return false;
-  }
-
   return true;
 }
 
-void InstanceMgr::unlink_instance_internal(const std::string& name,
-                                           const InstanceMetaInfo& info) {
+bool InstanceMgr::run_link_operations(
+    const std::vector<std::pair<std::string, InstanceMetaInfo>>& ops) {
+  for (size_t i = 0; i < ops.size(); ++i) {
+    if (!call_link_instance(ops[i].first, ops[i].second)) {
+      LOG(ERROR) << "Fail to link instance during registration, op index " << i;
+      for (size_t j = 0; j < i; ++j) {
+        call_unlink_instance(ops[j].first, ops[j].second);
+      }
+      return false;
+    }
+  }
+  return true;
+}
+
+void InstanceMgr::gather_unlink_operations(
+    const std::string& name,
+    const InstanceMetaInfo& info,
+    std::vector<std::pair<std::string, InstanceMetaInfo>>* out_ops) {
+  out_ops->clear();
   if (info.type == InstanceType::PREFILL) {
     for (auto& d_name : decode_index_) {
-      call_unlink_instance(instances_[d_name].rpc_address, info);
+      out_ops->emplace_back(instances_[d_name].rpc_address, info);
     }
   } else if (info.type == InstanceType::DECODE) {
     for (auto& p_name : prefill_index_) {
-      call_unlink_instance(instances_[p_name].rpc_address, info);
+      out_ops->emplace_back(instances_[p_name].rpc_address, info);
     }
   } else if (info.type == InstanceType::MIX) {
     for (const auto& [peer_name, peer_info] : instances_) {
       if (peer_name == name) {
         continue;
       }
-      call_unlink_instance(peer_info.rpc_address, info);
+      out_ops->emplace_back(peer_info.rpc_address, info);
     }
   }
 }
