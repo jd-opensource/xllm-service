@@ -17,11 +17,13 @@ limitations under the License.
 
 #include <brpc/channel.h>
 
+#include <memory>
 #include <shared_mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/macros.h"
@@ -85,7 +87,9 @@ class InstanceMgr final {
 
   void init();
 
-  bool create_channel(const std::string& target_uri);
+  // brpc::Channel::Init only; must NOT be called while holding cluster_mutex_.
+  bool init_brpc_channel(const std::string& target_uri,
+                         std::shared_ptr<brpc::Channel>* out_channel);
   bool probe_instance_health(const std::string& instance_name);
   void reconcile_instance_states();
   void refresh_instance_registration(const std::string& name,
@@ -116,11 +120,18 @@ class InstanceMgr final {
                               const InstanceMetaInfo& info);
   // Release internal resources for an instance
   void remove_instance_resources(const std::string& name);
-  // Internal helper to establish bidirectional links with peer instances
-  bool link_instance_internal(const std::string& name, InstanceMetaInfo& info);
-  // Internal helper to break bidirectional links with peer instances
-  void unlink_instance_internal(const std::string& name,
-                                const InstanceMetaInfo& info);
+  // Build LinkInstance RPC list; caller must hold cluster_mutex_.
+  bool gather_link_operations(
+      const InstanceMetaInfo& info,
+      std::vector<std::pair<std::string, InstanceMetaInfo>>* out_ops);
+  // Run LinkInstance calls without holding cluster_mutex_.
+  bool run_link_operations(
+      const std::vector<std::pair<std::string, InstanceMetaInfo>>& ops);
+  // Build UnlinkInstance RPC list; caller must hold cluster_mutex_.
+  void gather_unlink_operations(
+      const std::string& name,
+      const InstanceMetaInfo& info,
+      std::vector<std::pair<std::string, InstanceMetaInfo>>* out_ops);
   // Add instance to prefill or decode index according to its type
   void add_instance_to_index(const std::string& name, InstanceMetaInfo& info);
   // Remove instance from prefill or decode index
@@ -131,7 +142,14 @@ class InstanceMgr final {
   bool call_unlink_instance(const std::string& target_rpc_addr,
                             const InstanceMetaInfo& peer_info);
 
- private:
+  // Locking (scheme B): only two mutexes participate in ordering.
+  // L1 cluster_mutex_: instances_, indices, cached_channels_.
+  // L2 metrics_mutex_: load_metrics_, request_metrics_, latency_metrics_,
+  // time_predictors_, updated_metrics_, removed_instance_.
+  // Order when both needed: always lock L1 before L2 (use std::scoped_lock).
+  // get_time_predictor() requires metrics_mutex_ held by caller.
+  // remove_instance_resources() requires cluster_mutex_ held by caller.
+
   Options options_;
 
   bool exited_ = false;
@@ -140,7 +158,8 @@ class InstanceMgr final {
 
   std::shared_ptr<EtcdClient> etcd_client_;
 
-  std::shared_mutex inst_mutex_;
+  // L1 — cluster topology & channels
+  std::shared_mutex cluster_mutex_;
   std::unordered_map<std::string, InstanceMetaInfo> instances_;
   struct SuspectInstanceInfo {
     std::string incarnation_id;
@@ -151,29 +170,16 @@ class InstanceMgr final {
   std::vector<std::string> decode_index_;
   uint64_t next_prefill_index_ = 0;
   uint64_t next_decode_index_ = 0;
-
-  std::shared_mutex load_metric_mutex_;
-  std::unordered_map<std::string, LoadMetrics> load_metrics_;
   std::unordered_map<std::string, std::shared_ptr<brpc::Channel>>
       cached_channels_;
 
-  std::mutex update_mutex_;
+  // L2 — metrics & predictors (single lock to avoid order ambiguity)
+  std::shared_mutex metrics_mutex_;
+  std::unordered_map<std::string, LoadMetrics> load_metrics_;
   std::unordered_map<std::string, LoadMetrics> updated_metrics_;
   std::unordered_set<std::string> removed_instance_;
-
-  // "instance name" -> "TimePredictor" map
-  std::mutex time_predictor_mutex_;
   std::unordered_map<std::string, TimePredictor> time_predictors_;
-
-  // Record the latest token latency metrics for each instance, including TTFT
-  // and TBT.
-  std::mutex latency_metrics_mutex_;
   std::unordered_map<std::string, LatencyMetrics> latency_metrics_;
-
-  // Record the request metrics for each instance, including prefill token
-  // count, prefill request count, estimated prefill execution time, decode
-  // token count, and decode request count.
-  std::mutex request_metrics_mutex_;
   std::unordered_map<std::string, RequestMetrics> request_metrics_;
 
   // not own
