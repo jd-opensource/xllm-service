@@ -15,7 +15,11 @@ limitations under the License.
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
+
 #include "common/macros.h"
+#include "common/types.h"
 #include "loadbalance_policy.h"
 
 namespace xllm_service {
@@ -31,6 +35,16 @@ class RoundRobin final : public LoadBalancePolicy {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(RoundRobin);
+
+  uint64_t next_prefill_index_ = 0;
+  uint64_t next_decode_index_ = 0;
 };
+
+// Shared round-robin selection over get_schedulable_* lists (used by RoundRobin
+// and SloAwarePolicy when token_ids is empty).
+bool SelectRoutingRoundRobin(const std::shared_ptr<InstanceMgr>& instance_mgr,
+                             uint64_t* next_prefill_index,
+                             uint64_t* next_decode_index,
+                             Routing* routing);
 
 }  // namespace xllm_service

@@ -15,6 +15,8 @@ limitations under the License.
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/options.h"
 #include "common/types.h"
 #include "loadbalance_policy.h"
@@ -34,6 +36,8 @@ class SloAwarePolicy final : public LoadBalancePolicy {
   DISALLOW_COPY_AND_ASSIGN(SloAwarePolicy);
 
   Options options_;
+  uint64_t round_robin_next_prefill_index_ = 0;
+  uint64_t round_robin_next_decode_index_ = 0;
 };
 
 }  // namespace xllm_service
