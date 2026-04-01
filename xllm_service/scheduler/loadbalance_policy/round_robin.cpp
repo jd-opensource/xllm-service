@@ -21,39 +21,12 @@ limitations under the License.
 
 namespace xllm_service {
 
-bool SelectRoutingRoundRobin(const std::shared_ptr<InstanceMgr>& instance_mgr,
-                             uint64_t* next_prefill_index,
-                             uint64_t* next_decode_index,
-                             Routing* routing) {
-  const std::vector<std::string> prefill =
-      instance_mgr->get_schedulable_prefill_instances();
-  const std::vector<std::string> decode =
-      instance_mgr->get_schedulable_decode_instances();
+bool RoundRobin::load_balance(const std::shared_ptr<const Request>& request,
+                              const LoadBalanceCandidates* candidates,
+                              LoadBalanceResult* result) {
+  pick_round_robin_candidates(*candidates, result);
 
-  if (prefill.empty()) {
-    LOG(ERROR) << "No prefill or default instance found!";
-    return false;
-  }
-
-  if (decode.empty()) {
-    LOG(ERROR) << "No decode or default instance found!";
-    return false;
-  }
-
-  *next_prefill_index = *next_prefill_index % prefill.size();
-  routing->prefill_name = prefill[*next_prefill_index];
-  (*next_prefill_index)++;
-  *next_decode_index = *next_decode_index % decode.size();
-  routing->decode_name = decode[*next_decode_index];
-  (*next_decode_index)++;
   return true;
-}
-
-bool RoundRobin::select_instances_pair(std::shared_ptr<Request> request) {
-  return SelectRoutingRoundRobin(instance_mgr_,
-                                 &next_prefill_index_,
-                                 &next_decode_index_,
-                                 &request->routing);
 }
 
 }  // namespace xllm_service

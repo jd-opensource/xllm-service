@@ -123,11 +123,6 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
     return false;
   }
 
-  if (!instance_mgr_->bind_request_instance_incarnations(request)) {
-    LOG(ERROR) << "Failed to bind request to instance incarnation ids. "
-               << request->routing.debug_string();
-    return false;
-  }
   DLOG(INFO) << request->routing.debug_string();
 
   // update request metrics
@@ -240,14 +235,12 @@ InstanceMetaInfo Scheduler::get_instance_info(
   return instance_mgr_->get_instance_info(instance_name);
 }
 
-std::vector<std::string> Scheduler::get_static_decode_list(
-    const std::string& instance_name) {
-  return instance_mgr_->get_static_decode_list(instance_name);
+std::vector<std::string> Scheduler::get_static_decode_list() {
+  return instance_mgr_->get_static_decode_list();
 }
 
-std::vector<std::string> Scheduler::get_static_prefill_list(
-    const std::string& instance_name) {
-  return instance_mgr_->get_static_prefill_list(instance_name);
+std::vector<std::string> Scheduler::get_static_prefill_list() {
+  return instance_mgr_->get_static_prefill_list();
 }
 
 Tokenizer* Scheduler::get_tls_tokenizer() {

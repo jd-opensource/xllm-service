@@ -98,9 +98,9 @@ inline const char* runtime_state_name(InstanceRuntimeState state) {
 }
 
 struct LoadMetrics {
-  LoadMetrics() : waiting_requests_num(0), gpu_cache_usage_perc(0) {};
+  LoadMetrics() : waiting_requests_num(0), gpu_cache_usage_perc(0){};
   LoadMetrics(const uint64_t& waiting_reqs_num, const float& usage)
-      : waiting_requests_num(waiting_reqs_num), gpu_cache_usage_perc(usage) {};
+      : waiting_requests_num(waiting_reqs_num), gpu_cache_usage_perc(usage){};
 
   uint64_t waiting_requests_num;
   float gpu_cache_usage_perc;
@@ -399,17 +399,17 @@ struct OverlapScores {
 };
 
 struct LoadBalanceInfos {
-  OverlapScores overlap_scores;
   std::unordered_map<std::string, LoadMetrics> prefill_load_metrics;
   std::unordered_map<std::string, LoadMetrics> decode_load_metrics;
   uint64_t prefill_max_waiting_requests_num = 0;
   uint64_t decode_max_waiting_requests_num = 0;
+  std::unordered_map<std::string, RequestMetrics> request_metrics;
+  /// Topology snapshot for candidate instances (filled by
+  /// InstanceMgr::prepare_load_balance_candidates together with metrics below).
+  std::unordered_map<std::string, InstanceMetaInfo> instance_infos;
 
   std::string debug_string() {
     nlohmann::json json_val;
-
-    json_val["overlap_scores"] =
-        nlohmann::json::parse(overlap_scores.debug_string());
 
     nlohmann::json prefill_json;
     for (auto& [key, metrics] : prefill_load_metrics) {
@@ -430,6 +430,19 @@ struct LoadBalanceInfos {
 
     return json_val.dump(2);
   }
+};
+
+struct LoadBalanceCandidates {
+  std::vector<std::string> prefill_candidates;
+  std::vector<std::string> decode_candidates;
+  LoadBalanceInfos load_balance_infos;
+};
+
+struct LoadBalanceResult {
+  std::string prefill_name;
+  std::string decode_name;
+  std::string prefill_incarnation_id;
+  std::string decode_incarnation_id;
 };
 
 // Function call related types

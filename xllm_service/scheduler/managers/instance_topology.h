@@ -31,22 +31,9 @@ limitations under the License.
 #include "common/options.h"
 #include "common/threadpool.h"
 #include "common/types.h"
-#include "request/request.h"
 #include "scheduler/etcd_client/etcd_client.h"
 
 namespace xllm_service {
-
-struct SuspectInstanceEntry {
-  std::string incarnation_id;
-  uint64_t enter_ts_ms = 0;
-};
-
-struct TopologySnapshot {
-  std::unordered_map<std::string, InstanceMetaInfo> instances;
-  std::unordered_map<std::string, SuspectInstanceEntry> suspect_instances;
-  std::vector<std::string> prefill_index;
-  std::vector<std::string> decode_index;
-};
 
 using AddInstanceMetricsCallback =
     std::function<void(const std::string&, const InstanceMetaInfo&)>;
@@ -66,22 +53,15 @@ class InstanceTopology {
   virtual InstanceMetaInfo get_instance_info(
       const std::string& instance_name) = 0;
 
-  virtual std::vector<std::string> get_static_decode_list(
-      const std::string& instance_name) = 0;
+  virtual std::vector<std::string> get_static_decode_list() = 0;
 
-  virtual std::vector<std::string> get_static_prefill_list(
-      const std::string& instance_name) = 0;
+  virtual std::vector<std::string> get_static_prefill_list() = 0;
 
   virtual std::shared_ptr<brpc::Channel> get_channel(
       const std::string& instance_name) = 0;
 
-  virtual bool bind_request_instance_incarnations(
-      const std::shared_ptr<Request>& request) = 0;
-
   virtual bool record_instance_heartbeat(const std::string& instance_name,
                                          const std::string& incarnation_id) = 0;
-
-  virtual TopologySnapshot snapshot() const = 0;
 
   virtual void flip_prefill_to_decode(const std::string& instance_name) = 0;
   virtual void flip_decode_to_prefill(const std::string& instance_name) = 0;
@@ -105,23 +85,27 @@ class InstanceTopologyImpl final : public InstanceTopology {
   void init_from_etcd_register_all();
 
   InstanceMetaInfo get_instance_info(const std::string& instance_name) override;
-  std::vector<std::string> get_static_decode_list(
-      const std::string& instance_name) override;
-  std::vector<std::string> get_static_prefill_list(
-      const std::string& instance_name) override;
+  std::vector<std::string> get_static_decode_list() override;
+  std::vector<std::string> get_static_prefill_list() override;
   std::shared_ptr<brpc::Channel> get_channel(
       const std::string& instance_name) override;
-  bool bind_request_instance_incarnations(
-      const std::shared_ptr<Request>& request) override;
   bool record_instance_heartbeat(const std::string& instance_name,
                                  const std::string& incarnation_id) override;
-  TopologySnapshot snapshot() const override;
   void flip_prefill_to_decode(const std::string& instance_name) override;
   void flip_decode_to_prefill(const std::string& instance_name) override;
 
  private:
   friend class InstanceMgr;
   DISALLOW_COPY_AND_ASSIGN(InstanceTopologyImpl);
+
+  // cluster_mutex_ must already be held (shared or unique). Matches
+  // get_static_prefill_list / get_static_decode_list iteration and filters.
+  void collect_load_balance_lists_locked(
+      std::vector<std::string>* prefill_out,
+      std::vector<std::string>* decode_out,
+      std::unordered_map<std::string, InstanceMetaInfo>* instance_infos_out,
+      const std::function<bool(const InstanceMetaInfo&)>& is_schedulable)
+      const;
 
   bool register_instance(const std::string& name, InstanceMetaInfo& info);
   void deregister_instance(const std::string& name,

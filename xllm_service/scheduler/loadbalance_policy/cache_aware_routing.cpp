@@ -19,39 +19,30 @@ namespace xllm_service {
 
 constexpr float MIN_SCORE = -2.0;
 
-bool CacheAwareRouting::select_instances_pair(
-    std::shared_ptr<Request> request) {
-  LoadBalanceInfos lb_infos;
-  if (!request->token_ids.empty()) {
-    Slice<int32_t> token_ids(request->token_ids.data(),
-                             request->token_ids.size());
-    instance_mgr_->kvcache_match(token_ids, &lb_infos.overlap_scores);
-    DLOG(INFO) << lb_infos.debug_string();
-  }
-
-  instance_mgr_->get_load_metrics(&lb_infos);
-  DLOG(INFO) << lb_infos.debug_string();
-
-  if (lb_infos.prefill_load_metrics.size() == 0) {
-    LOG(INFO) << "No node available!";
+bool CacheAwareRouting::load_balance(
+    const std::shared_ptr<const Request>& request,
+    const LoadBalanceCandidates* candidates,
+    LoadBalanceResult* result) {
+  OverlapScores overlap_scores;
+  instance_mgr_->kvcache_match(request->token_ids, &overlap_scores);
+  if (overlap_scores.instances.empty()) {
     return false;
   }
 
   // find preifll
-  cost_function(lb_infos.overlap_scores.hbm_instance_score,
-                lb_infos.overlap_scores.max_block_num,
-                lb_infos.prefill_load_metrics,
-                lb_infos.prefill_max_waiting_requests_num,
-                &request->routing.prefill_name);
+  const auto& infos = candidates->load_balance_infos;
+  cost_function(overlap_scores.hbm_instance_score,
+                overlap_scores.max_block_num,
+                infos.prefill_load_metrics,
+                infos.prefill_max_waiting_requests_num,
+                &result->prefill_name);
 
   // find decode
-  if (lb_infos.decode_load_metrics.size()) {
-    cost_function(lb_infos.overlap_scores.hbm_instance_score,
-                  lb_infos.overlap_scores.max_block_num,
-                  lb_infos.decode_load_metrics,
-                  lb_infos.decode_max_waiting_requests_num,
-                  &request->routing.decode_name);
-  }
+  cost_function(overlap_scores.hbm_instance_score,
+                overlap_scores.max_block_num,
+                infos.decode_load_metrics,
+                infos.decode_max_waiting_requests_num,
+                &result->decode_name);
 
   return true;
 }

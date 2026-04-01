@@ -23,14 +23,11 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "common/global_gflags.h"
 #include "scheduler/managers/instance_topology.h"
 
 namespace {
 constexpr const char* kEtcdLoadMetricsPrefix = "XLLM:LOADMETRICS:";
-
-bool is_instance_schedulable(const xllm_service::InstanceMetaInfo& info) {
-  return info.runtime_state != xllm_service::InstanceRuntimeState::SUSPECT;
-}
 }  // namespace
 
 namespace xllm_service {
@@ -69,80 +66,53 @@ void InstanceMetricsImpl::shutdown() {
   exited_.store(true, std::memory_order_release);
 }
 
-void InstanceMetricsImpl::get_load_metrics(LoadBalanceInfos* infos,
-                                           const TopologySnapshot& topology) {
-  std::shared_lock<std::shared_mutex> metric_lock(metrics_mutex_);
+void InstanceMetricsImpl::fill_load_balance_infos_no_lock(
+    const std::vector<std::string>& prefill_instances,
+    const std::vector<std::string>& decode_instances,
+    LoadBalanceInfos* infos) {
+  infos->prefill_load_metrics.clear();
+  infos->decode_load_metrics.clear();
+  infos->prefill_max_waiting_requests_num = 0;
+  infos->decode_max_waiting_requests_num = 0;
 
-  const auto& instances = topology.instances;
-
-  for (auto name : infos->overlap_scores.instances) {
+  for (const auto& name : prefill_instances) {
     auto it = load_metrics_.find(name);
-    if (it == load_metrics_.end()) {
-      continue;
+    if (it != load_metrics_.end()) {
+      infos->prefill_load_metrics.insert_or_assign(name, it->second);
     }
-    auto instance_it = instances.find(name);
-    if (instance_it == instances.end() ||
-        !is_instance_schedulable(instance_it->second)) {
-      continue;
-    }
-
-    if (instance_it->second.type == InstanceType::DECODE) {
-      infos->decode_load_metrics.insert(std::make_pair(name, it->second));
-      infos->decode_max_waiting_requests_num =
-          std::max(infos->decode_max_waiting_requests_num,
-                   it->second.waiting_requests_num);
-    } else {
-      infos->prefill_load_metrics.insert(std::make_pair(name, it->second));
-      infos->prefill_max_waiting_requests_num =
-          std::max(infos->prefill_max_waiting_requests_num,
-                   it->second.waiting_requests_num);
+  }
+  for (const auto& name : decode_instances) {
+    auto it = load_metrics_.find(name);
+    if (it != load_metrics_.end()) {
+      infos->decode_load_metrics.insert_or_assign(name, it->second);
     }
   }
 
-  std::string least_loaded_prefill_instance;
-  float least_loaded_prefill_gpu_cache_usage_perc = 1;
-  std::string least_loaded_decode_instance;
-  float least_loaded_decode_gpu_cache_usage_perc = 1;
-
-  if (infos->prefill_load_metrics.size() == 0 ||
-      infos->decode_load_metrics.size() == 0) {
-    for (const auto& metric : load_metrics_) {
-      auto instance_it = instances.find(metric.first);
-      if (instance_it == instances.end() ||
-          !is_instance_schedulable(instance_it->second)) {
-        continue;
-      }
-      if (instance_it->second.type != InstanceType::DECODE) {
-        if (metric.second.gpu_cache_usage_perc <
-            least_loaded_prefill_gpu_cache_usage_perc) {
-          least_loaded_prefill_gpu_cache_usage_perc =
-              metric.second.gpu_cache_usage_perc;
-          least_loaded_prefill_instance = metric.first;
-        }
-      } else {
-        if (metric.second.gpu_cache_usage_perc <
-            least_loaded_decode_gpu_cache_usage_perc) {
-          least_loaded_decode_gpu_cache_usage_perc =
-              metric.second.gpu_cache_usage_perc;
-          least_loaded_decode_instance = metric.first;
-        }
-      }
-    }
+  uint64_t prefill_max = 0;
+  for (const auto& p : infos->prefill_load_metrics) {
+    prefill_max = std::max(prefill_max, p.second.waiting_requests_num);
   }
+  infos->prefill_max_waiting_requests_num = prefill_max;
 
-  if (infos->prefill_load_metrics.size() == 0 &&
-      !least_loaded_prefill_instance.empty()) {
-    infos->prefill_load_metrics.insert(
-        std::make_pair(least_loaded_prefill_instance,
-                       load_metrics_.at(least_loaded_prefill_instance)));
+  uint64_t decode_max = 0;
+  for (const auto& p : infos->decode_load_metrics) {
+    decode_max = std::max(decode_max, p.second.waiting_requests_num);
   }
+  infos->decode_max_waiting_requests_num = decode_max;
 
-  if (infos->decode_load_metrics.size() == 0 &&
-      !least_loaded_decode_instance.empty()) {
-    infos->decode_load_metrics.insert(
-        std::make_pair(least_loaded_decode_instance,
-                       load_metrics_.at(least_loaded_decode_instance)));
+  infos->request_metrics.clear();
+  for (const auto& p : request_metrics_) {
+    infos->request_metrics.insert_or_assign(p.first, p.second);
   }
+}
+
+void InstanceMetricsImpl::fill_load_balance_infos(
+    const std::vector<std::string>& prefill_instances,
+    const std::vector<std::string>& decode_instances,
+    LoadBalanceInfos* infos) {
+  std::shared_lock<std::shared_mutex> metric_lock(metrics_mutex_);
+  infos->instance_infos.clear();
+  fill_load_balance_infos_no_lock(prefill_instances, decode_instances, infos);
 }
 
 void InstanceMetricsImpl::record_load_metrics_update(
@@ -200,6 +170,7 @@ void InstanceMetricsImpl::update_request_metrics(
   }
 
   std::string flip_decode_name;
+  std::string flip_prefill_name;
   {
     std::unique_lock<std::shared_mutex> lock(metrics_mutex_);
 
@@ -217,16 +188,42 @@ void InstanceMetricsImpl::update_request_metrics(
       return;
     }
 
+    int64_t estimated_tpot = 0;
     int64_t num_prompt_tokens = request->token_ids.size();
     int64_t num_generated_tokens = request->num_generated_tokens;
     switch (action) {
-      case RequestAction::SCHEDULE:
+      case RequestAction::SCHEDULE: {
         prefill_it->second.prefill_request_num += 1;
         prefill_it->second.prefill_token_num += num_prompt_tokens;
 
         decode_it->second.decode_request_num += 1;
         decode_it->second.decode_token_num += num_prompt_tokens;
+
+        const std::string prefill_name = request->routing.prefill_name;
+        const std::string decode_name = request->routing.decode_name;
+        const int32_t ttft_token_len =
+            static_cast<int32_t>(request->token_ids.size());
+        const int32_t tpot_total_len =
+            static_cast<int32_t>(decode_it->second.decode_token_num);
+        const int32_t tpot_batch =
+            static_cast<int32_t>(decode_it->second.decode_request_num);
+
+        auto prefill_tp_it = time_predictors_.find(prefill_name);
+        auto decode_tp_it = time_predictors_.find(decode_name);
+        if (prefill_tp_it == time_predictors_.end() ||
+            decode_tp_it == time_predictors_.end()) {
+          LOG(FATAL) << "Find TimePredictor failed, prefill: " << prefill_name
+                     << " decode: " << decode_name;
+        }
+        const int64_t estimated_ttft = static_cast<int64_t>(
+            prefill_tp_it->second.predict_ttft(ttft_token_len));
+        estimated_tpot = static_cast<int64_t>(
+            decode_tp_it->second.predict_tpot(tpot_total_len, tpot_batch));
+
+        prefill_it->second.estimated_prefill_time += estimated_ttft;
+        request->estimated_ttft = estimated_ttft;
         break;
+      }
       case RequestAction::FINISH_PREFILL:
         prefill_it->second.prefill_request_num -= 1;
         prefill_it->second.prefill_token_num -= num_prompt_tokens;
@@ -261,31 +258,18 @@ void InstanceMetricsImpl::update_request_metrics(
     if (decode_it->second.decode_request_num == 0) {
       flip_decode_name = request->routing.decode_name;
     }
+    if (estimated_tpot > FLAGS_target_tpot) {
+      flip_prefill_name = request->routing.prefill_name;
+    }
   }
 
   if (!flip_decode_name.empty()) {
     topology_impl_->flip_decode_to_prefill(flip_decode_name);
   }
-}
 
-MetricsSnapshot InstanceMetricsImpl::snapshot() const {
-  std::shared_lock<std::shared_mutex> lock(metrics_mutex_);
-  MetricsSnapshot s;
-  s.load_metrics = load_metrics_;
-  s.request_metrics = request_metrics_;
-  s.latency_metrics = latency_metrics_;
-  return s;
-}
-
-double InstanceMetricsImpl::predict_ttft(const std::string& instance_name,
-                                         int32_t token_len) {
-  std::shared_lock<std::shared_mutex> lock(metrics_mutex_);
-  auto it = time_predictors_.find(instance_name);
-  if (it == time_predictors_.end()) {
-    LOG(FATAL) << "Find TimePredictor failed, instance name : "
-               << instance_name;
+  if (!flip_prefill_name.empty()) {
+    topology_impl_->flip_prefill_to_decode(flip_prefill_name);
   }
-  return it->second.predict_ttft(token_len);
 }
 
 double InstanceMetricsImpl::predict_tpot(const std::string& instance_name,
@@ -298,16 +282,6 @@ double InstanceMetricsImpl::predict_tpot(const std::string& instance_name,
                << instance_name;
   }
   return it->second.predict_tpot(total_length, batch_size);
-}
-
-TimePredictor& InstanceMetricsImpl::time_predictor_unlocked(
-    const std::string& instance_name) {
-  auto it = time_predictors_.find(instance_name);
-  if (it == time_predictors_.end()) {
-    LOG(FATAL) << "Find TimePredictor failed, instance name : "
-               << instance_name;
-  }
-  return it->second;
 }
 
 void InstanceMetricsImpl::set_as_master() {

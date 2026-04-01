@@ -30,14 +30,14 @@ class SloAwarePolicy final : public LoadBalancePolicy {
 
   virtual ~SloAwarePolicy() = default;
 
-  bool select_instances_pair(std::shared_ptr<Request> request) override;
+  bool load_balance(const std::shared_ptr<const Request>& request,
+                    const LoadBalanceCandidates* candidates,
+                    LoadBalanceResult* result) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SloAwarePolicy);
 
   Options options_;
-  uint64_t round_robin_next_prefill_index_ = 0;
-  uint64_t round_robin_next_decode_index_ = 0;
 };
 
 }  // namespace xllm_service

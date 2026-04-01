@@ -150,8 +150,7 @@ InstanceMetaInfo InstanceTopologyImpl::get_instance_info(
   return instances_[instance_name];
 }
 
-std::vector<std::string> InstanceTopologyImpl::get_static_decode_list(
-    const std::string& /*instance_name*/) {
+std::vector<std::string> InstanceTopologyImpl::get_static_decode_list() {
   std::vector<std::string> decode_list;
   std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
   for (auto& inst : instances_) {
@@ -164,8 +163,7 @@ std::vector<std::string> InstanceTopologyImpl::get_static_decode_list(
   return decode_list;
 }
 
-std::vector<std::string> InstanceTopologyImpl::get_static_prefill_list(
-    const std::string& /*instance_name*/) {
+std::vector<std::string> InstanceTopologyImpl::get_static_prefill_list() {
   std::vector<std::string> prefill_list;
   std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
   for (auto& inst : instances_) {
@@ -179,6 +177,33 @@ std::vector<std::string> InstanceTopologyImpl::get_static_prefill_list(
   return prefill_list;
 }
 
+void InstanceTopologyImpl::collect_load_balance_lists_locked(
+    std::vector<std::string>* prefill_out,
+    std::vector<std::string>* decode_out,
+    std::unordered_map<std::string, InstanceMetaInfo>* instance_infos_out,
+    const std::function<bool(const InstanceMetaInfo&)>& is_schedulable)
+    const {
+  prefill_out->clear();
+  decode_out->clear();
+  instance_infos_out->clear();
+
+  for (const auto& inst : instances_) {
+    if ((inst.second.type == InstanceType::PREFILL ||
+         inst.second.type == InstanceType::DEFAULT) &&
+        is_schedulable(inst.second)) {
+      prefill_out->emplace_back(inst.second.name);
+      instance_infos_out->insert_or_assign(inst.second.name, inst.second);
+    }
+  }
+  for (const auto& inst : instances_) {
+    if (inst.second.type == InstanceType::DECODE &&
+        is_schedulable(inst.second)) {
+      decode_out->emplace_back(inst.second.name);
+      instance_infos_out->insert_or_assign(inst.second.name, inst.second);
+    }
+  }
+}
+
 std::shared_ptr<brpc::Channel> InstanceTopologyImpl::get_channel(
     const std::string& instance_name) {
   std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
@@ -187,48 +212,6 @@ std::shared_ptr<brpc::Channel> InstanceTopologyImpl::get_channel(
     return nullptr;
   }
   return iter->second;
-}
-
-bool InstanceTopologyImpl::bind_request_instance_incarnations(
-    const std::shared_ptr<Request>& request) {
-  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
-
-  request->prefill_incarnation_id.clear();
-  request->decode_incarnation_id.clear();
-
-  if (!request->routing.prefill_name.empty()) {
-    auto prefill_it = instances_.find(request->routing.prefill_name);
-    if (prefill_it == instances_.end()) {
-      LOG(ERROR) << "Prefill instance is not registered when binding request: "
-                 << request->routing.prefill_name;
-      return false;
-    }
-    if (!is_instance_schedulable(prefill_it->second)) {
-      LOG(ERROR) << "Prefill instance is not schedulable when binding request: "
-                 << request->routing.prefill_name << ", state: "
-                 << runtime_state_name(prefill_it->second.runtime_state);
-      return false;
-    }
-    request->prefill_incarnation_id = prefill_it->second.incarnation_id;
-  }
-
-  if (!request->routing.decode_name.empty()) {
-    auto decode_it = instances_.find(request->routing.decode_name);
-    if (decode_it == instances_.end()) {
-      LOG(ERROR) << "Decode instance is not registered when binding request: "
-                 << request->routing.decode_name;
-      return false;
-    }
-    if (!is_instance_schedulable(decode_it->second)) {
-      LOG(ERROR) << "Decode instance is not schedulable when binding request: "
-                 << request->routing.decode_name << ", state: "
-                 << runtime_state_name(decode_it->second.runtime_state);
-      return false;
-    }
-    request->decode_incarnation_id = decode_it->second.incarnation_id;
-  }
-
-  return true;
 }
 
 bool InstanceTopologyImpl::record_instance_heartbeat(
@@ -257,21 +240,6 @@ bool InstanceTopologyImpl::record_instance_heartbeat(
                  << ", incarnation_id: " << incarnation_id;
   }
   return true;
-}
-
-TopologySnapshot InstanceTopologyImpl::snapshot() const {
-  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
-  TopologySnapshot s;
-  s.instances = instances_;
-  for (const auto& [k, v] : suspect_instances_) {
-    SuspectInstanceEntry e;
-    e.incarnation_id = v.incarnation_id;
-    e.enter_ts_ms = v.enter_ts_ms;
-    s.suspect_instances[k] = std::move(e);
-  }
-  s.prefill_index = prefill_index_;
-  s.decode_index = decode_index_;
-  return s;
 }
 
 void InstanceTopologyImpl::flip_prefill_to_decode(

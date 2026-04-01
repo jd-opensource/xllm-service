@@ -40,11 +40,9 @@ class XllmRpcServiceImpl final {
 
   InstanceMetaInfo get_instance_info(const std::string& instance_name);
 
-  std::vector<std::string> get_static_decode_list(
-      const std::string& prefill_name);
+  std::vector<std::string> get_static_decode_list();
 
-  std::vector<std::string> get_static_prefill_list(
-      const std::string& decode_name);
+  std::vector<std::string> get_static_prefill_list();
 
  public:
   // handle generations from prefill/decode instance

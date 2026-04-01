@@ -22,6 +22,7 @@ limitations under the License.
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "common/macros.h"
 #include "common/options.h"
@@ -35,20 +36,10 @@ limitations under the License.
 
 namespace xllm_service {
 
-// Point-in-time copy of metrics-side state (no TimePredictor; use predict_*).
-struct MetricsSnapshot {
-  std::unordered_map<std::string, LoadMetrics> load_metrics;
-  std::unordered_map<std::string, RequestMetrics> request_metrics;
-  std::unordered_map<std::string, LatencyMetrics> latency_metrics;
-};
-
 // Per-instance load / request / latency metrics, predictors, and etcd upload.
 class InstanceMetrics {
  public:
   virtual ~InstanceMetrics() = default;
-
-  virtual void get_load_metrics(LoadBalanceInfos* infos,
-                                const TopologySnapshot& topology) = 0;
 
   virtual void record_load_metrics_update(
       const std::string& instance_name,
@@ -62,11 +53,6 @@ class InstanceMetrics {
 
   virtual void update_request_metrics(std::shared_ptr<Request> request,
                                       RequestAction action) = 0;
-
-  virtual MetricsSnapshot snapshot() const = 0;
-
-  virtual double predict_ttft(const std::string& instance_name,
-                              int32_t token_len) = 0;
 
   virtual double predict_tpot(const std::string& instance_name,
                               int32_t total_length,
@@ -96,9 +82,6 @@ class InstanceMetricsImpl final : public InstanceMetrics {
 
   void shutdown();
 
-  void get_load_metrics(LoadBalanceInfos* infos,
-                        const TopologySnapshot& topology) override;
-
   void record_load_metrics_update(
       const std::string& instance_name,
       const proto::LoadMetrics& load_metrics) override;
@@ -112,11 +95,6 @@ class InstanceMetricsImpl final : public InstanceMetrics {
   void update_request_metrics(std::shared_ptr<Request> request,
                               RequestAction action) override;
 
-  MetricsSnapshot snapshot() const override;
-
-  double predict_ttft(const std::string& instance_name,
-                      int32_t token_len) override;
-
   double predict_tpot(const std::string& instance_name,
                       int32_t total_length,
                       int32_t batch_size) override;
@@ -128,14 +106,21 @@ class InstanceMetricsImpl final : public InstanceMetrics {
 
   void remove_instance_metrics(const std::string& name) override;
 
+  void fill_load_balance_infos(
+      const std::vector<std::string>& prefill_instances,
+      const std::vector<std::string>& decode_instances,
+      LoadBalanceInfos* infos);
+
+  // metrics_mutex_ must already be held (shared or unique).
+  void fill_load_balance_infos_no_lock(
+      const std::vector<std::string>& prefill_instances,
+      const std::vector<std::string>& decode_instances,
+      LoadBalanceInfos* infos);
+
  private:
   friend class InstanceMgr;
 
   DISALLOW_COPY_AND_ASSIGN(InstanceMetricsImpl);
-
-  // Caller must hold metrics_mutex_; used by InstanceMgr SLO path under
-  // cluster+metrics locks (predict_* would deadlock).
-  TimePredictor& time_predictor_unlocked(const std::string& instance_name);
 
   void update_load_metrics(const etcd::Response& response,
                            const uint64_t& prefix_len);

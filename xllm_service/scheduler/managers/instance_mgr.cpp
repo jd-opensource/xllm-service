@@ -17,34 +17,29 @@ limitations under the License.
 
 #include <glog/logging.h>
 
-#include "instance_kvcache.h"
-
 #include <limits>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/global_gflags.h"
 #include "common/types.h"
-
-namespace {
-bool is_instance_schedulable(const xllm_service::InstanceMetaInfo& info) {
-  return info.runtime_state != xllm_service::InstanceRuntimeState::SUSPECT;
-}
-
-}  // namespace
+#include "instance_kvcache.h"
 
 namespace xllm_service {
 
-InstanceMgr::InstanceMgr(const Options& options,
-                         const std::shared_ptr<EtcdClient>& etcd_client,
-                         const bool is_master_service,
-                         OnInstanceDeregisteredCallback on_instance_deregistered)
+InstanceMgr::InstanceMgr(
+    const Options& options,
+    const std::shared_ptr<EtcdClient>& etcd_client,
+    const bool is_master_service,
+    OnInstanceDeregisteredCallback on_instance_deregistered)
     : etcd_client_(etcd_client),
-      metrics_impl_(std::make_unique<InstanceMetricsImpl>(
-          options,
-          etcd_client,
-          is_master_service)),
+      metrics_impl_(std::make_unique<InstanceMetricsImpl>(options,
+                                                          etcd_client,
+                                                          is_master_service)),
       topology_impl_(std::make_unique<InstanceTopologyImpl>(
           options,
           etcd_client,
@@ -55,10 +50,9 @@ InstanceMgr::InstanceMgr(const Options& options,
           [this](const std::string& n) {
             metrics_impl_->remove_instance_metrics(n);
           })),
-      kvcache_(std::make_unique<InstanceKVCache>(
-          options,
-          etcd_client,
-          is_master_service)) {
+      kvcache_(std::make_unique<InstanceKVCache>(options,
+                                                 etcd_client,
+                                                 is_master_service)) {
   metrics_impl_->set_topology(topology_impl_.get());
   init();
 }
@@ -68,68 +62,125 @@ void InstanceMgr::init() {
   metrics_impl_->load_initial_load_metrics_from_etcd();
 }
 
-InstanceMgr::~InstanceMgr() {
-  metrics_impl_->shutdown();
-}
+InstanceMgr::~InstanceMgr() { metrics_impl_->shutdown(); }
 
 InstanceMetaInfo InstanceMgr::get_instance_info(
     const std::string& instance_name) {
   return topology_impl_->get_instance_info(instance_name);
 }
 
-std::vector<std::string> InstanceMgr::get_schedulable_prefill_instances() {
-  std::shared_lock<std::shared_mutex> lock(topology_impl_->cluster_mutex_);
-  const auto& idx = topology_impl_->prefill_index_;
-  const auto& inst = topology_impl_->instances_;
-  const bool suspect_empty = topology_impl_->suspect_instances_.empty();
-  std::vector<std::string> out;
-  out.reserve(idx.size());
-  for (const auto& name : idx) {
-    if (suspect_empty) {
-      out.push_back(name);
-      continue;
-    }
-    auto it = inst.find(name);
-    if (it != inst.end() && is_instance_schedulable(it->second)) {
-      out.push_back(name);
-    }
+bool InstanceMgr::validate_scheduled_routing(const Request& request) {
+  const std::string& prefill = request.routing.prefill_name;
+  const std::string& decode = request.routing.decode_name;
+
+  if (prefill.empty() || decode.empty()) {
+    LOG(WARNING)
+        << "validate_scheduled_routing: empty prefill_name or decode_name";
+    return false;
   }
-  return out;
-}
 
-std::vector<std::string> InstanceMgr::get_schedulable_decode_instances() {
-  std::shared_lock<std::shared_mutex> lock(topology_impl_->cluster_mutex_);
-  const auto& idx = topology_impl_->decode_index_;
-  const auto& inst = topology_impl_->instances_;
-  const bool suspect_empty = topology_impl_->suspect_instances_.empty();
-  std::vector<std::string> out;
-  out.reserve(idx.size());
-  for (const auto& name : idx) {
-    if (suspect_empty) {
-      out.push_back(name);
-      continue;
-    }
-    auto it = inst.find(name);
-    if (it != inst.end() && is_instance_schedulable(it->second)) {
-      out.push_back(name);
-    }
+  if (request.prefill_incarnation_id.empty() ||
+      request.decode_incarnation_id.empty()) {
+    LOG(WARNING) << "validate_scheduled_routing: empty prefill or decode "
+                    "incarnation_id";
+    return false;
   }
-  return out;
+
+  const InstanceMetaInfo prefill_info = get_instance_info(prefill);
+  const InstanceMetaInfo decode_info = get_instance_info(decode);
+
+  if (prefill_info.name.empty()) {
+    LOG(WARNING)
+        << "validate_scheduled_routing: prefill instance not registered: "
+        << prefill;
+    return false;
+  }
+  if (decode_info.name.empty()) {
+    LOG(WARNING)
+        << "validate_scheduled_routing: decode instance not registered: "
+        << decode;
+    return false;
+  }
+
+  if (prefill_info.runtime_state != InstanceRuntimeState::ACTIVE) {
+    LOG(WARNING) << "validate_scheduled_routing: prefill not ACTIVE: "
+                 << prefill
+                 << " state=" << runtime_state_name(prefill_info.runtime_state);
+    return false;
+  }
+  if (decode_info.runtime_state != InstanceRuntimeState::ACTIVE) {
+    LOG(WARNING) << "validate_scheduled_routing: decode not ACTIVE: " << decode
+                 << " state=" << runtime_state_name(decode_info.runtime_state);
+    return false;
+  }
+
+  if (prefill_info.incarnation_id != request.prefill_incarnation_id) {
+    LOG(WARNING)
+        << "validate_scheduled_routing: prefill incarnation_id mismatch: "
+        << prefill;
+    return false;
+  }
+  if (decode_info.incarnation_id != request.decode_incarnation_id) {
+    LOG(WARNING)
+        << "validate_scheduled_routing: decode incarnation_id mismatch: "
+        << decode;
+    return false;
+  }
+
+  if (!get_channel(prefill)) {
+    LOG(WARNING) << "validate_scheduled_routing: prefill brpc channel missing: "
+                 << prefill;
+    return false;
+  }
+  if (!get_channel(decode)) {
+    LOG(WARNING) << "validate_scheduled_routing: decode brpc channel missing: "
+                 << decode;
+    return false;
+  }
+
+  return true;
 }
 
-std::vector<std::string> InstanceMgr::get_static_decode_list(
-    const std::string& instance_name) {
-  return topology_impl_->get_static_decode_list(instance_name);
+std::vector<std::string> InstanceMgr::get_static_decode_list() {
+  return topology_impl_->get_static_decode_list();
 }
 
-std::vector<std::string> InstanceMgr::get_static_prefill_list(
-    const std::string& instance_name) {
-  return topology_impl_->get_static_prefill_list(instance_name);
+std::vector<std::string> InstanceMgr::get_static_prefill_list() {
+  return topology_impl_->get_static_prefill_list();
 }
 
-void InstanceMgr::get_load_metrics(LoadBalanceInfos* infos) {
-  TopologySnapshot topo = topology_impl_->snapshot();
-  metrics_impl_->get_load_metrics(infos, topo);
+bool InstanceMgr::prepare_load_balance_candidates(
+    const std::function<bool(const InstanceMetaInfo&)>& is_schedulable,
+    LoadBalanceCandidates* candidates) {
+  std::shared_lock<std::shared_mutex> topo_lock(topology_impl_->cluster_mutex_);
+  std::shared_lock<std::shared_mutex> metrics_lock(
+      metrics_impl_->metrics_mutex_);
+
+  topology_impl_->collect_load_balance_lists_locked(
+      &candidates->prefill_candidates,
+      &candidates->decode_candidates,
+      &candidates->load_balance_infos.instance_infos,
+      is_schedulable);
+
+  if (candidates->prefill_candidates.empty() ||
+      candidates->decode_candidates.empty()) {
+    candidates->prefill_candidates.clear();
+    candidates->decode_candidates.clear();
+    candidates->load_balance_infos = LoadBalanceInfos{};
+    return false;
+  }
+
+  metrics_impl_->fill_load_balance_infos_no_lock(
+      candidates->prefill_candidates,
+      candidates->decode_candidates,
+      &candidates->load_balance_infos);
+  return true;
+}
+
+double InstanceMgr::predict_tpot(const std::string& instance_name,
+                                 int32_t total_length,
+                                 int32_t batch_size) {
+  return metrics_impl_->predict_tpot(instance_name, total_length, batch_size);
 }
 
 void InstanceMgr::kvcache_match(const Slice<int32_t>& token_ids,
@@ -153,14 +204,9 @@ std::shared_ptr<brpc::Channel> InstanceMgr::get_channel(
   return topology_impl_->get_channel(instance_name);
 }
 
-bool InstanceMgr::bind_request_instance_incarnations(
-    const std::shared_ptr<Request>& request) {
-  return topology_impl_->bind_request_instance_incarnations(request);
-}
-
 bool InstanceMgr::on_instance_heartbeat(const proto::HeartbeatRequest& req) {
   if (!topology_impl_->record_instance_heartbeat(req.name(),
-                                                req.incarnation_id())) {
+                                                 req.incarnation_id())) {
     return false;
   }
   kvcache_->record_updated_kvcaches(req.name(), req.cache_event());
@@ -172,134 +218,6 @@ bool InstanceMgr::on_instance_heartbeat(const proto::HeartbeatRequest& req) {
 void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
                                          RequestAction action) {
   metrics_impl_->update_request_metrics(request, action);
-}
-
-bool InstanceMgr::select_instance_pair_on_slo(
-    std::shared_ptr<Request> request) {
-  std::string flip_prefill_target;
-  {
-    std::scoped_lock<std::shared_mutex, std::shared_mutex> lock(
-        topology_impl_->cluster_mutex_, metrics_impl_->metrics_mutex_);
-
-    auto& instances_ = topology_impl_->instances_;
-    auto& prefill_index_ = topology_impl_->prefill_index_;
-    auto& decode_index_ = topology_impl_->decode_index_;
-    auto& suspect_instances_ = topology_impl_->suspect_instances_;
-    auto& request_metrics_ = metrics_impl_->request_metrics_;
-
-    const bool has_unschedulable_instances = !suspect_instances_.empty();
-
-    std::string min_prefill_instance;
-    int64_t min_prefill_time = std::numeric_limits<int64_t>::max();
-    int64_t total_prefill_time = 0;
-    size_t schedulable_prefill_count = 0;
-    for (const auto& prefill_instance : prefill_index_) {
-      if (has_unschedulable_instances) {
-        auto it = instances_.find(prefill_instance);
-        if (it == instances_.end() || !is_instance_schedulable(it->second)) {
-          continue;
-        }
-      }
-
-      int64_t prefill_time =
-          request_metrics_[prefill_instance].estimated_prefill_time;
-      total_prefill_time += prefill_time;
-      if (prefill_time < min_prefill_time) {
-        min_prefill_instance = prefill_instance;
-        min_prefill_time = prefill_time;
-      }
-      ++schedulable_prefill_count;
-    }
-
-    if (schedulable_prefill_count == 0) {
-      LOG(ERROR) << "No prefill or default instance found!";
-      return false;
-    }
-    int64_t avg_prefill_time = total_prefill_time / schedulable_prefill_count;
-
-    std::string min_decode_instance;
-    int64_t min_estimated_tpot = std::numeric_limits<int64_t>::max();
-    std::string target_decode_instance;
-    size_t schedulable_decode_count = 0;
-    for (const auto& decode_instance : decode_index_) {
-      if (has_unschedulable_instances) {
-        auto it = instances_.find(decode_instance);
-        if (it == instances_.end() || !is_instance_schedulable(it->second)) {
-          continue;
-        }
-      }
-
-      int64_t token_num = request_metrics_[decode_instance].decode_token_num;
-      int64_t request_num =
-          request_metrics_[decode_instance].decode_request_num;
-      auto& time_predictor =
-          metrics_impl_->time_predictor_unlocked(decode_instance);
-      int64_t estimated_tpot = static_cast<int64_t>(time_predictor.predict_tpot(
-          static_cast<int32_t>(token_num + request->token_ids.size()),
-          static_cast<int32_t>(request_num + 1)));
-      if (estimated_tpot <= FLAGS_target_tpot &&
-          target_decode_instance.empty()) {
-        target_decode_instance = decode_instance;
-      }
-
-      if (estimated_tpot < min_estimated_tpot) {
-        min_decode_instance = decode_instance;
-        min_estimated_tpot = estimated_tpot;
-      }
-      ++schedulable_decode_count;
-    }
-
-    if (schedulable_decode_count == 0) {
-      LOG(ERROR) << "No decode instance found!";
-      return false;
-    }
-
-    if (!target_decode_instance.empty()) {
-      request->routing.decode_name = target_decode_instance;
-    } else {
-      request->routing.decode_name = min_decode_instance;
-    }
-
-    float tpot_threshold =
-        (schedulable_decode_count - 1.0f) / schedulable_decode_count;
-    if (min_prefill_time > FLAGS_target_ttft &&
-        target_decode_instance != min_decode_instance &&
-        min_estimated_tpot < FLAGS_target_tpot * tpot_threshold &&
-        request_metrics_[min_decode_instance].estimated_prefill_time <
-            min_prefill_time) {
-      request->routing.prefill_name = min_decode_instance;
-      auto& time_predictor =
-          metrics_impl_->time_predictor_unlocked(min_decode_instance);
-      request->estimated_ttft =
-          static_cast<int64_t>(time_predictor.predict_ttft(
-              static_cast<int32_t>(request->token_ids.size())));
-      request_metrics_[min_decode_instance].estimated_prefill_time +=
-          request->estimated_ttft;
-    } else {
-      request->routing.prefill_name = min_prefill_instance;
-      auto& time_predictor =
-          metrics_impl_->time_predictor_unlocked(min_prefill_instance);
-      request->estimated_ttft =
-          static_cast<int64_t>(time_predictor.predict_ttft(
-              static_cast<int32_t>(request->token_ids.size())));
-      request_metrics_[min_prefill_instance].estimated_prefill_time +=
-          request->estimated_ttft;
-    }
-
-    float ttft_threshold =
-        (schedulable_prefill_count - 1.0f) / schedulable_prefill_count;
-    if (target_decode_instance.empty() &&
-        (avg_prefill_time < FLAGS_target_ttft * ttft_threshold ||
-         schedulable_decode_count < schedulable_prefill_count)) {
-      flip_prefill_target = request->routing.prefill_name;
-    }
-  }
-
-  if (!flip_prefill_target.empty()) {
-    topology_impl_->flip_prefill_to_decode(flip_prefill_target);
-  }
-
-  return true;
 }
 
 }  // namespace xllm_service
