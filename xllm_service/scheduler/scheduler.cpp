@@ -16,6 +16,7 @@ limitations under the License.
 #include "scheduler/scheduler.h"
 
 #include "common/metrics.h"
+#include "common/utils.h"
 #include "common/xllm/status.h"
 #include "loadbalance_policy/cache_aware_routing.h"
 #include "loadbalance_policy/round_robin.h"
@@ -28,6 +29,8 @@ constexpr int32_t kHeartbeatInterval = 3;  // in seconds
 std::string ETCD_MASTER_SERVICE_KEY = "XLLM:SERVICE:MASTER";
 std::string ETCD_XSERVICE_KEY_PREFIX = "XLLM:SERVICE:";
 std::string ETCD_MASTER_SERVICE_NAME = "MASTER";
+constexpr const char* kEtcdUsernameEnvVar = "ETCD_USERNAME";
+constexpr const char* kEtcdPasswordEnvVar = "ETCD_PASSWORD";
 }  // namespace
 
 namespace xllm_service {
@@ -37,7 +40,22 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
                                                   &tokenizer_args_);
   chat_template_ = std::make_unique<JinjaChatTemplate>(tokenizer_args_);
 
-  etcd_client_ = std::make_shared<EtcdClient>(options_.etcd_addr());
+  const std::string etcd_username =
+      utils::get_optional_string_env(kEtcdUsernameEnvVar).value_or("");
+  const std::string etcd_password =
+      utils::get_optional_string_env(kEtcdPasswordEnvVar).value_or("");
+  const bool has_etcd_auth_user = !etcd_username.empty();
+  const bool has_etcd_auth_password = !etcd_password.empty();
+  if (has_etcd_auth_user != has_etcd_auth_password) {
+    LOG(FATAL) << "Both " << kEtcdUsernameEnvVar << " and "
+               << kEtcdPasswordEnvVar << " must be set together.";
+  }
+  if (has_etcd_auth_user) {
+    etcd_client_ = std::make_shared<EtcdClient>(
+        options_.etcd_addr(), etcd_username, etcd_password);
+  } else {
+    etcd_client_ = std::make_shared<EtcdClient>(options_.etcd_addr());
+  }
 
   if (!register_current_service()) {
     LOG(FATAL)
