@@ -74,6 +74,14 @@ bool get_bool_env(const std::string& key, bool defaultValue) {
           strVal == "True");
 }
 
+std::optional<std::string> get_optional_string_env(const std::string& key) {
+  const char* val = std::getenv(key.c_str());
+  if (val == nullptr) {
+    return std::nullopt;
+  }
+  return std::string(val);
+}
+
 std::string get_local_ip() {
   using namespace boost::asio;
   io_service io;
