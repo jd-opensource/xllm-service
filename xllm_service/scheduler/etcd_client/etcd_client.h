@@ -38,6 +38,9 @@ std::string get_event_key_suffix(const etcd::Event& event, uint64_t prefix_len);
 class EtcdClient {
  public:
   EtcdClient(const std::string& etcd_addr);
+  EtcdClient(const std::string& etcd_addr,
+             const std::string& username,
+             const std::string& password);
   ~EtcdClient();
 
   template <typename T>
