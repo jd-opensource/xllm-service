@@ -186,6 +186,7 @@ int main(int argc, char* argv[]) {
       .timeout_ms(FLAGS_timeout_ms)
       .connect_timeout_ms(FLAGS_connect_timeout_ms)
       .etcd_addr(FLAGS_etcd_addr)
+      .etcd_namespace(FLAGS_etcd_namespace)
       .load_balance_policy(FLAGS_load_balance_policy)
       .xxh3_128bits_seed(FLAGS_xxh3_128bits_seed)
       .service_name(xllm_service::utils::get_local_ip() + ":" +

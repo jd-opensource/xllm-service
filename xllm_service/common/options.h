@@ -58,6 +58,8 @@ class Options {
   // instance manager options
   PROPERTY(std::string, etcd_addr);
 
+  PROPERTY(std::string, etcd_namespace);
+
   PROPERTY(int32_t, detect_disconnected_instance_interval) = 15;
 
   PROPERTY(int32_t, instance_delete_probe_timeout_ms) = 1000;

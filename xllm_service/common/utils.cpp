@@ -102,5 +102,34 @@ std::string get_local_ip() {
   return "";
 }
 
+std::string normalize_etcd_namespace(const std::string& etcd_namespace) {
+  if (etcd_namespace.empty()) {
+    return "";
+  }
+
+  size_t start = 0;
+  size_t end = etcd_namespace.size();
+  while (start < end && etcd_namespace[start] == '/') {
+    ++start;
+  }
+  while (end > start && etcd_namespace[end - 1] == '/') {
+    --end;
+  }
+
+  if (start >= end) {
+    return "";
+  }
+  return "/" + etcd_namespace.substr(start, end - start) + "/";
+}
+
+std::string build_etcd_key_with_namespace(
+    const std::string& normalized_namespace_prefix,
+    const std::string& logical_key) {
+  if (normalized_namespace_prefix.empty()) {
+    return logical_key;
+  }
+  return normalized_namespace_prefix + logical_key;
+}
+
 }  // namespace utils
 }  // namespace xllm_service

@@ -30,6 +30,10 @@ limitations under the License.
 
 namespace xllm_service {
 
+constexpr const char* ETCD_MASTER_SERVICE_KEY = "XLLM:SERVICE:MASTER";
+constexpr const char* ETCD_XSERVICE_KEY_PREFIX = "XLLM:SERVICE:";
+constexpr const char* ETCD_MASTER_SERVICE_NAME = "MASTER";
+
 struct CacheLocations;
 using XXH3KeyCacheMap = std::unordered_map<XXH3Key,
                                            CacheLocations,
