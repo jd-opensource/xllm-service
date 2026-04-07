@@ -52,6 +52,11 @@ DEFINE_string(etcd_addr,
               "0.0.0.0:2379",
               "etcd adderss for save instance meta info");
 
+DEFINE_string(
+    etcd_namespace,
+    "",
+    "Optional etcd namespace prefix for all xllm-service keys, e.g. prod-a.");
+
 DEFINE_uint32(xxh3_128bits_seed, 1024, "default XXH3 128bits Hash seed");
 
 DEFINE_int32(port, 8888, "Port for xllm service to listen on");

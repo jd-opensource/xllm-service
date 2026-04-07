@@ -26,9 +26,6 @@ limitations under the License.
 namespace {
 constexpr int32_t kHeartbeatInterval = 3;  // in seconds
 
-std::string ETCD_MASTER_SERVICE_KEY = "XLLM:SERVICE:MASTER";
-std::string ETCD_XSERVICE_KEY_PREFIX = "XLLM:SERVICE:";
-std::string ETCD_MASTER_SERVICE_NAME = "MASTER";
 constexpr const char* kEtcdUsernameEnvVar = "ETCD_USERNAME";
 constexpr const char* kEtcdPasswordEnvVar = "ETCD_PASSWORD";
 }  // namespace
@@ -51,10 +48,13 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
                << kEtcdPasswordEnvVar << " must be set together.";
   }
   if (has_etcd_auth_user) {
-    etcd_client_ = std::make_shared<EtcdClient>(
-        options_.etcd_addr(), etcd_username, etcd_password);
+    etcd_client_ = std::make_shared<EtcdClient>(options_.etcd_addr(),
+                                                etcd_username,
+                                                etcd_password,
+                                                options_.etcd_namespace());
   } else {
-    etcd_client_ = std::make_shared<EtcdClient>(options_.etcd_addr());
+    etcd_client_ = std::make_shared<EtcdClient>(options_.etcd_addr(),
+                                                options_.etcd_namespace());
   }
 
   if (!register_current_service()) {
