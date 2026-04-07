@@ -37,15 +37,18 @@ std::string get_event_key_suffix(const etcd::Event& event, uint64_t prefix_len);
 
 class EtcdClient {
  public:
-  EtcdClient(const std::string& etcd_addr);
+  EtcdClient(const std::string& etcd_addr,
+             const std::string& etcd_namespace = "");
   EtcdClient(const std::string& etcd_addr,
              const std::string& username,
-             const std::string& password);
+             const std::string& password,
+             const std::string& etcd_namespace = "");
   ~EtcdClient();
 
   template <typename T>
   bool set(const std::string& key, const T& value) {
-    auto response = client_.put(key, value.serialize_to_json().dump());
+    auto response =
+        client_.put(namespaced_key(key), value.serialize_to_json().dump());
     if (!response.is_ok()) {
       LOG(ERROR) << "etcd set " << key
                  << " failed: " << response.error_message();
@@ -59,17 +62,17 @@ class EtcdClient {
   bool set(const std::string& key_prefix,
            const unordered_map<std::string, T>& values) {
     bool rt = true;
+    const std::string namespaced_prefix = namespaced_key(key_prefix);
     for (const auto& iter : values) {
+      const std::string full_key = namespaced_prefix + iter.first;
       if (iter.second.empty()) {
-        rt = rt && client_.rm(key_prefix + iter.first).is_ok();
+        rt = rt && client_.rm(full_key).is_ok();
       } else {
-        rt = rt && client_
-                       .put(key_prefix + iter.first,
-                            iter.second.serialize_to_json().dump())
+        rt = rt && client_.put(full_key, iter.second.serialize_to_json().dump())
                        .is_ok();
       }
     }
-    return true;
+    return rt;
   }
 
   bool set(const std::string& key_prefix, const XXH3KeyCacheMap& values);
@@ -86,7 +89,7 @@ class EtcdClient {
 
   template <typename T>
   bool get(const std::string& key, T* value) {
-    auto response = client_.get(key);
+    auto response = client_.get(namespaced_key(key));
     if (!response.is_ok()) {
       LOG(ERROR) << "etcd get " << key
                  << " failed: " << response.error_message();
@@ -104,15 +107,17 @@ class EtcdClient {
   template <typename T>
   bool get_prefix(const std::string& key_prefix,
                   std::unordered_map<std::string, T>* values) {
-    auto response = client_.ls(key_prefix);
+    const std::string full_prefix = namespaced_key(key_prefix);
+    auto response = client_.ls(full_prefix);
     if (!response.is_ok()) {
       LOG(ERROR) << "etcd get " << key_prefix
                  << " failed: " << response.error_message();
       return false;
     }
 
+    const size_t prefix_len = full_prefix.size();
     for (int i = 0; i < response.keys().size(); i++) {
-      auto key_str = response.key(i).substr(key_prefix.size());
+      auto key_str = response.key(i).substr(prefix_len);
       auto json_str = response.value(i).as_string();
 
       T value;
@@ -140,6 +145,8 @@ class EtcdClient {
   void stop_watch();
 
  private:
+  std::string namespaced_key(const std::string& logical_key) const;
+
   struct WatcherInfo {
     std::unique_ptr<etcd::Watcher> watcher;
     Callback callback;
@@ -147,6 +154,7 @@ class EtcdClient {
 
   etcd::SyncClient client_;
   std::string etcd_addr_;
+  std::string etcd_namespace_prefix_;
   std::mutex watchers_mutex_;
   std::map<std::string, WatcherInfo> watchers_;
   std::vector<std::shared_ptr<etcd::KeepAlive>> keep_alives_;
