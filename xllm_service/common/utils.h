@@ -26,6 +26,10 @@ bool is_port_available(int port);
 bool get_bool_env(const std::string& key, bool defaultValue);
 std::optional<std::string> get_optional_string_env(const std::string& key);
 std::string get_local_ip();
+std::string normalize_etcd_namespace(const std::string& etcd_namespace);
+std::string build_etcd_key_with_namespace(
+    const std::string& normalized_namespace_prefix,
+    const std::string& logical_key);
 
 }  // namespace utils
 }  // namespace xllm_service
