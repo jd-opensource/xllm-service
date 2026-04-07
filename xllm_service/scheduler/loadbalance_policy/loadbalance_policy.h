@@ -28,9 +28,29 @@ class LoadBalancePolicy {
 
   virtual ~LoadBalancePolicy() = default;
 
-  virtual bool select_instances_pair(std::shared_ptr<Request> request) = 0;
+  bool select_instances_pair(std::shared_ptr<Request> request);
 
  protected:
+  virtual bool load_balance(const std::shared_ptr<const Request>& request,
+                            const LoadBalanceCandidates* candidates,
+                            LoadBalanceResult* result) = 0;
+
+  bool load_balance_pre_process(const std::shared_ptr<const Request>& request,
+                                LoadBalanceCandidates* candidates);
+
+  virtual bool should_instance_schedulable(
+      const std::shared_ptr<const Request>& request,
+      const InstanceMetaInfo& info) const;
+
+  bool load_balance_post_process(std::shared_ptr<Request> request,
+                                 const LoadBalanceCandidates* candidates,
+                                 LoadBalanceResult* result);
+
+  void pick_round_robin_candidates(const LoadBalanceCandidates& candidates,
+                                   LoadBalanceResult* result);
+
+  uint64_t next_prefill_index_ = 0;
+  uint64_t next_decode_index_ = 0;
   std::shared_ptr<InstanceMgr> instance_mgr_;
 };
 

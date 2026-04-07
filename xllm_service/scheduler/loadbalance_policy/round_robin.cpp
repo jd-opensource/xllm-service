@@ -15,10 +15,18 @@ limitations under the License.
 
 #include "round_robin.h"
 
+#include <glog/logging.h>
+
+#include <vector>
+
 namespace xllm_service {
 
-bool RoundRobin::select_instances_pair(std::shared_ptr<Request> request) {
-  return instance_mgr_->get_next_instance_pair(&request->routing);
+bool RoundRobin::load_balance(const std::shared_ptr<const Request>& request,
+                              const LoadBalanceCandidates* candidates,
+                              LoadBalanceResult* result) {
+  pick_round_robin_candidates(*candidates, result);
+
+  return true;
 }
 
 }  // namespace xllm_service

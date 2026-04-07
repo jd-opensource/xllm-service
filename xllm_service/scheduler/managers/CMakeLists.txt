@@ -6,10 +6,14 @@ cc_library(
    managers
   HDRS
     instance_mgr.h
-    global_kvcache_mgr.h
+    instance_metrics.h
+    instance_topology.h
+    instance_kvcache.h
   SRCS
     instance_mgr.cpp
-    global_kvcache_mgr.cpp
+    instance_metrics.cpp
+    instance_topology.cpp
+    instance_kvcache.cpp
   DEPS
     :chat_template
     :common

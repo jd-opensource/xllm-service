@@ -56,9 +56,12 @@ namespace xllm_service {
 
 #define REQUIRES(...) std::enable_if_t<(__VA_ARGS__)>* = nullptr
 
+// brpc/butil/macros.h may define the same macro; avoid redefinition warnings.
+#ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(TypeName) \
   TypeName(const TypeName&) = delete;      \
   void operator=(const TypeName&) = delete
+#endif
 
 // Define a macro to simplify adding elements from a vector to a repeated field
 #define ADD_VECTOR_TO_PROTO(proto_field, vec) \

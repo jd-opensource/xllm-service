@@ -15,7 +15,10 @@ limitations under the License.
 
 #pragma once
 
+#include <memory>
+
 #include "common/macros.h"
+#include "common/types.h"
 #include "loadbalance_policy.h"
 
 namespace xllm_service {
@@ -23,14 +26,15 @@ namespace xllm_service {
 class RoundRobin final : public LoadBalancePolicy {
  public:
   RoundRobin(std::shared_ptr<InstanceMgr> instance_mgr)
-      : LoadBalancePolicy(instance_mgr) {};
+      : LoadBalancePolicy(instance_mgr){};
 
   virtual ~RoundRobin() = default;
 
-  bool select_instances_pair(std::shared_ptr<Request> request) override;
+  bool load_balance(const std::shared_ptr<const Request>& request,
+                    const LoadBalanceCandidates* candidates,
+                    LoadBalanceResult* result) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(RoundRobin);
 };
-
 }  // namespace xllm_service

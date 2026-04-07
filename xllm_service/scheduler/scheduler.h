@@ -22,7 +22,6 @@ limitations under the License.
 #include "common/xllm/output.h"
 #include "etcd_client/etcd_client.h"
 #include "loadbalance_policy/loadbalance_policy.h"
-#include "managers/global_kvcache_mgr.h"
 #include "managers/instance_mgr.h"
 #include "request/request.h"
 #include "response_handler.h"
@@ -43,11 +42,9 @@ class Scheduler final {
 
   InstanceMetaInfo get_instance_info(const std::string& instance_name);
 
-  std::vector<std::string> get_static_decode_list(
-      const std::string& instance_name);
+  std::vector<std::string> get_static_decode_list();
 
-  std::vector<std::string> get_static_prefill_list(
-      const std::string& instance_name);
+  std::vector<std::string> get_static_prefill_list();
 
   bool handle_instance_heartbeat(const proto::HeartbeatRequest* req);
 
@@ -110,8 +107,6 @@ class Scheduler final {
   std::unique_ptr<Tokenizer> tokenizer_;
 
   std::shared_ptr<InstanceMgr> instance_mgr_;
-
-  std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr_;
 
   std::unique_ptr<LoadBalancePolicy> lb_policy_;
 

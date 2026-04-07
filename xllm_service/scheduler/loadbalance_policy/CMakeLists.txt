@@ -14,6 +14,7 @@ cc_library(
     round_robin.cpp
     cache_aware_routing.cpp
     slo_aware_policy.cpp
+    loadbalance_policy.cpp
   DEPS
     :chat_template
     :common

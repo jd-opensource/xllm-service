@@ -16,25 +16,26 @@ limitations under the License.
 #pragma once
 
 #include <shared_mutex>
-#include <thread>
 
-#include "../etcd_client/etcd_client.h"
 #include "common/hash_util.h"
 #include "common/macros.h"
 #include "common/options.h"
 #include "common/slice.h"
 #include "common/threadpool.h"
 #include "common/types.h"
+#include "scheduler/etcd_client/etcd_client.h"
 #include "xllm_rpc_service.pb.h"
 
 namespace xllm_service {
 
-class GlobalKVCacheMgr final {
+// Per-instance KV cache block locations aggregated via etcd (internal to
+// InstanceMgr; do not use directly from Scheduler).
+class InstanceKVCache final {
  public:
-  explicit GlobalKVCacheMgr(const Options& options,
-                            const std::shared_ptr<EtcdClient>& etcd_client,
-                            const bool is_master_service);
-  ~GlobalKVCacheMgr();
+  explicit InstanceKVCache(const Options& options,
+                           const std::shared_ptr<EtcdClient>& etcd_client,
+                           const bool is_master_service);
+  ~InstanceKVCache();
 
   void match(const Slice<int32_t>& token_ids, OverlapScores* overlap_scores);
 
@@ -45,18 +46,17 @@ class GlobalKVCacheMgr final {
   void set_as_master();
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(GlobalKVCacheMgr);
+  DISALLOW_COPY_AND_ASSIGN(InstanceKVCache);
 
   void update_kvcache(const etcd::Response& response,
                       const uint64_t prefix_len);
 
- private:
   Options options_;
   std::atomic_bool is_master_service_ = false;
   bool exited_ = false;
   std::shared_mutex kvcache_mutex_;
   XXH3KeyCacheMap kvcache_infos_;
-  std::shared_ptr<EtcdClient> etcd_client_;  // not own
+  std::shared_ptr<EtcdClient> etcd_client_;
 
   std::mutex update_mutex_;
   XXH3KeyCacheMap updated_kvcaches_;

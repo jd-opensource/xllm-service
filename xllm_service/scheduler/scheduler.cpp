@@ -76,14 +76,18 @@ Scheduler::Scheduler(const Options& options) : options_(options) {
   }
 
   instance_mgr_ = std::make_shared<InstanceMgr>(
-      options, etcd_client_, is_master_service_, this);
-
-  global_kvcache_mgr_ = std::make_shared<GlobalKVCacheMgr>(
-      options, etcd_client_, is_master_service_);
+      options,
+      etcd_client_,
+      is_master_service_,
+      [this](const std::string& instance_name,
+             const std::string& incarnation_id,
+             InstanceType cleanup_type) {
+        clear_requests_on_failed_instance(
+            instance_name, incarnation_id, cleanup_type);
+      });
 
   if (options.load_balance_policy() == "CAR") {
-    lb_policy_ =
-        std::make_unique<CacheAwareRouting>(instance_mgr_, global_kvcache_mgr_);
+    lb_policy_ = std::make_unique<CacheAwareRouting>(instance_mgr_);
   } else if (options.load_balance_policy() == "SLO_AWARE") {
     lb_policy_ = std::make_unique<SloAwarePolicy>(options, instance_mgr_);
   } else {
@@ -137,11 +141,6 @@ bool Scheduler::schedule(std::shared_ptr<Request> request) {
     return false;
   }
 
-  if (!instance_mgr_->bind_request_instance_incarnations(request)) {
-    LOG(ERROR) << "Failed to bind request to instance incarnation ids. "
-               << request->routing.debug_string();
-    return false;
-  }
   DLOG(INFO) << request->routing.debug_string();
 
   // update request metrics
@@ -161,9 +160,7 @@ void Scheduler::update_master_service_heartbeat() {
   while (!exited_) {
     std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatInterval));
 
-    global_kvcache_mgr_->upload_kvcache();
-
-    instance_mgr_->upload_load_metrics();
+    instance_mgr_->upload_master_state_to_etcd();
   }
 }
 
@@ -187,14 +184,10 @@ bool Scheduler::handle_instance_heartbeat(const proto::HeartbeatRequest* req) {
   if (exited_) {
     return false;
   }
-  if (!instance_mgr_->record_instance_heartbeat(req->name(),
-                                                req->incarnation_id())) {
+  if (req == nullptr) {
     return false;
   }
-  global_kvcache_mgr_->record_updated_kvcaches(req->name(), req->cache_event());
-  instance_mgr_->record_load_metrics_update(req->name(), req->load_metrics());
-  instance_mgr_->update_latency_metrics(req->name(), req->latency_metrics());
-  return true;
+  return instance_mgr_->on_instance_heartbeat(*req);
 }
 
 void Scheduler::handle_master_service_watch(const etcd::Response& response,
@@ -211,7 +204,6 @@ void Scheduler::handle_master_service_watch(const etcd::Response& response,
     heartbeat_thread_ = std::make_unique<std::thread>(
         &Scheduler::update_master_service_heartbeat, this);
 
-    global_kvcache_mgr_->set_as_master();
     instance_mgr_->set_as_master();
   }
 }
@@ -261,14 +253,12 @@ InstanceMetaInfo Scheduler::get_instance_info(
   return instance_mgr_->get_instance_info(instance_name);
 }
 
-std::vector<std::string> Scheduler::get_static_decode_list(
-    const std::string& instance_name) {
-  return instance_mgr_->get_static_decode_list(instance_name);
+std::vector<std::string> Scheduler::get_static_decode_list() {
+  return instance_mgr_->get_static_decode_list();
 }
 
-std::vector<std::string> Scheduler::get_static_prefill_list(
-    const std::string& instance_name) {
-  return instance_mgr_->get_static_prefill_list(instance_name);
+std::vector<std::string> Scheduler::get_static_prefill_list() {
+  return instance_mgr_->get_static_prefill_list();
 }
 
 Tokenizer* Scheduler::get_tls_tokenizer() {

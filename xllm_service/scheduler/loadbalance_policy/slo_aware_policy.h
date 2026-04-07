@@ -15,6 +15,8 @@ limitations under the License.
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/options.h"
 #include "common/types.h"
 #include "loadbalance_policy.h"
@@ -28,7 +30,9 @@ class SloAwarePolicy final : public LoadBalancePolicy {
 
   virtual ~SloAwarePolicy() = default;
 
-  bool select_instances_pair(std::shared_ptr<Request> request) override;
+  bool load_balance(const std::shared_ptr<const Request>& request,
+                    const LoadBalanceCandidates* candidates,
+                    LoadBalanceResult* result) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SloAwarePolicy);
