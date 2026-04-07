@@ -25,7 +25,7 @@ bool CacheAwareRouting::select_instances_pair(
   if (!request->token_ids.empty()) {
     Slice<int32_t> token_ids(request->token_ids.data(),
                              request->token_ids.size());
-    global_kvcache_mgr_->match(token_ids, &lb_infos.overlap_scores);
+    instance_mgr_->kvcache_match(token_ids, &lb_infos.overlap_scores);
     DLOG(INFO) << lb_infos.debug_string();
   }
 

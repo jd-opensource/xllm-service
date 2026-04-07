@@ -22,7 +22,6 @@ limitations under the License.
 #include "common/xllm/output.h"
 #include "etcd_client/etcd_client.h"
 #include "loadbalance_policy/loadbalance_policy.h"
-#include "managers/global_kvcache_mgr.h"
 #include "managers/instance_mgr.h"
 #include "request/request.h"
 #include "response_handler.h"
@@ -110,8 +109,6 @@ class Scheduler final {
   std::unique_ptr<Tokenizer> tokenizer_;
 
   std::shared_ptr<InstanceMgr> instance_mgr_;
-
-  std::shared_ptr<GlobalKVCacheMgr> global_kvcache_mgr_;
 
   std::unique_ptr<LoadBalancePolicy> lb_policy_;
 

@@ -13,8 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "global_kvcache_mgr.h"
+#include "instance_kvcache.h"
 
+#include <glog/logging.h>
 #include <nlohmann/json.hpp>
 
 #include "common/hash_util.h"
@@ -29,15 +30,14 @@ std::string ETCD_CACHE_PREFIX = "XLLM:CACHE:";
 
 namespace xllm_service {
 
-GlobalKVCacheMgr::GlobalKVCacheMgr(
-    const Options& options,
-    const std::shared_ptr<EtcdClient>& etcd_client,
-    const bool is_master_service)
+InstanceKVCache::InstanceKVCache(const Options& options,
+                                 const std::shared_ptr<EtcdClient>& etcd_client,
+                                 const bool is_master_service)
     : options_(options),
       is_master_service_(is_master_service),
       etcd_client_(etcd_client) {
   if (!is_master_service_) {
-    auto handle_kvcache = std::bind(&GlobalKVCacheMgr::update_kvcache,
+    auto handle_kvcache = std::bind(&InstanceKVCache::update_kvcache,
                                     this,
                                     std::placeholders::_1,
                                     std::placeholders::_2);
@@ -51,7 +51,7 @@ GlobalKVCacheMgr::GlobalKVCacheMgr(
   }
 }
 
-GlobalKVCacheMgr::~GlobalKVCacheMgr() {
+InstanceKVCache::~InstanceKVCache() {
   exited_ = true;
   etcd_client_->remove_watch(ETCD_CACHE_PREFIX);
 }
@@ -70,9 +70,8 @@ void set_score(const std::unordered_set<std::string>& instance_names,
   }
 }
 
-void GlobalKVCacheMgr::match(const Slice<int32_t>& token_ids,
-                             OverlapScores* overlap_scores) {
-  // allign tokens to block boundary
+void InstanceKVCache::match(const Slice<int32_t>& token_ids,
+                            OverlapScores* overlap_scores) {
   const size_t n_tokens = round_down(token_ids.size(), options_.block_size());
   if (n_tokens == 0) {
     return;
@@ -130,8 +129,8 @@ void GlobalKVCacheMgr::match(const Slice<int32_t>& token_ids,
   }
 }
 
-void GlobalKVCacheMgr::update_kvcache(const etcd::Response& response,
-                                      const uint64_t prefix_len) {
+void InstanceKVCache::update_kvcache(const etcd::Response& response,
+                                     const uint64_t prefix_len) {
   if (response.events().empty() || exited_) {
     return;
   }
@@ -174,7 +173,7 @@ void GlobalKVCacheMgr::update_kvcache(const etcd::Response& response,
   });
 }
 
-void GlobalKVCacheMgr::record_updated_kvcaches(
+void InstanceKVCache::record_updated_kvcaches(
     const std::string& instance_name,
     const proto::KvCacheEvent& kvcache_event) {
   std::lock_guard<std::mutex> update_lock(update_mutex_);
@@ -224,7 +223,7 @@ void GlobalKVCacheMgr::record_updated_kvcaches(
   }
 }
 
-bool GlobalKVCacheMgr::upload_kvcache() {
+bool InstanceKVCache::upload_kvcache() {
   std::lock_guard<std::mutex> update_lock(update_mutex_);
   if (updated_kvcaches_.empty()) {
     return true;
@@ -246,7 +245,7 @@ bool GlobalKVCacheMgr::upload_kvcache() {
   return rt;
 }
 
-void GlobalKVCacheMgr::set_as_master() {
+void InstanceKVCache::set_as_master() {
   is_master_service_ = true;
   etcd_client_->remove_watch(ETCD_CACHE_PREFIX);
 }

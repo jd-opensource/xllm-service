@@ -15,7 +15,10 @@ limitations under the License.
 
 #include "slo_aware_policy.h"
 
+#include <glog/logging.h>
+
 #include "common/global_gflags.h"
+#include "round_robin.h"
 
 namespace xllm_service {
 
@@ -25,7 +28,10 @@ SloAwarePolicy::SloAwarePolicy(const Options& options,
 
 bool SloAwarePolicy::select_instances_pair(std::shared_ptr<Request> request) {
   if (request->token_ids.empty()) {
-    return instance_mgr_->get_next_instance_pair(&request->routing);
+    return SelectRoutingRoundRobin(instance_mgr_,
+                                   &round_robin_next_prefill_index_,
+                                   &round_robin_next_decode_index_,
+                                   &request->routing);
   }
 
   // select instances pair based on slo
