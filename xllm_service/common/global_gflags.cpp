@@ -140,3 +140,10 @@ DEFINE_string(tool_call_parser,
               "",
               "Specify the parser for handling tool-call interactions(e.g. "
               "auto, qwen25, qwen3, kimi_k2, deepseekv3, glm45, glm47).");
+
+DEFINE_int32(readiness_check_interval_s,
+             3,
+             "Interval in seconds to check for available instance groups "
+             "before starting and during runtime of the HTTP service.");
+
+BRPC_VALIDATE_GFLAG(readiness_check_interval_s, brpc::PositiveInteger);
