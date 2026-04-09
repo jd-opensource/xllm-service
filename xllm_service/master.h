@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <brpc/server.h>
 
+#include <atomic>
 #include <thread>
 
 #include "common/options.h"
@@ -35,7 +36,8 @@ class Master {
   void stop();
 
  private:
-  bool start_http_server();
+  bool setup_http_server();
+  void manage_http_server_lifecycle();
   bool start_rpc_server();
 
  private:
@@ -48,7 +50,10 @@ class Master {
   std::string http_server_address_;
   std::unique_ptr<xllm_service::XllmHttpServiceImpl> http_service_;
   brpc::Server http_server_;
-  std::unique_ptr<std::thread> http_server_thread_;
+  std::unique_ptr<std::thread> readiness_thread_;
+  std::atomic<bool> stopped_{false};
+  brpc::ServerOptions http_options_;
+  butil::EndPoint http_endpoint_;
 
   // 2.For rpc service
   std::string rpc_server_address_;

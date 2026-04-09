@@ -200,6 +200,18 @@ InstanceMetaInfo InstanceMgr::get_instance_info(
   return instances_[instance_name];
 }
 
+bool InstanceMgr::can_route_prefill_without_decode_locked(
+    const std::string& prefill_name) const {
+  auto selected_it = instances_.find(prefill_name);
+  if (selected_it == instances_.end() ||
+      selected_it->second.type != InstanceType::DEFAULT) {
+    LOG(ERROR) << "No decode instance and selected prefill is not default, "
+               << "instance: " << prefill_name;
+    return false;
+  }
+  return true;
+}
+
 bool InstanceMgr::get_next_instance_pair(Routing* routing) {
   std::unique_lock<std::shared_mutex> lock(cluster_mutex_);
   if (prefill_index_.empty()) {
@@ -215,8 +227,9 @@ bool InstanceMgr::get_next_instance_pair(Routing* routing) {
     next_prefill_index_++;
 
     if (decode_index_.empty()) {
-      return true;
+      return can_route_prefill_without_decode_locked(routing->prefill_name);
     }
+
     next_decode_index_ = next_decode_index_ % decode_index_.size();
     routing->decode_name = decode_index_[next_decode_index_];
     next_decode_index_++;
@@ -231,10 +244,12 @@ bool InstanceMgr::get_next_instance_pair(Routing* routing) {
     return false;
   }
 
-  if (!decode_index_.empty()) {
-    select_next_schedulable_instance(
-        instances_, decode_index_, &next_decode_index_, &routing->decode_name);
+  if (decode_index_.empty()) {
+    return can_route_prefill_without_decode_locked(routing->prefill_name);
   }
+
+  select_next_schedulable_instance(
+      instances_, decode_index_, &next_decode_index_, &routing->decode_name);
   return true;
 }
 
@@ -371,8 +386,7 @@ bool InstanceMgr::upload_load_metrics() {
     removed_instance_.clear();
   }
   bool status = etcd_client_->set(ETCD_LOADMETRICS_PREFIX, upload_snapshot);
-  status =
-      status && etcd_client_->rm(ETCD_LOADMETRICS_PREFIX, remove_snapshot);
+  status = status && etcd_client_->rm(ETCD_LOADMETRICS_PREFIX, remove_snapshot);
   return status;
 }
 
@@ -730,9 +744,10 @@ void InstanceMgr::reconcile_instance_states() {
           continue;
         }
         mark_instance_suspect(instance_name, info.incarnation_id);
-        LOG(WARNING) << "Lease lost instance heartbeat timed out, enter suspect "
-                     << "state: " << instance_name
-                     << ", incarnation_id: " << info.incarnation_id;
+        LOG(WARNING)
+            << "Lease lost instance heartbeat timed out, enter suspect "
+            << "state: " << instance_name
+            << ", incarnation_id: " << info.incarnation_id;
       }
 
       for (auto it = suspect_instances_.begin();
@@ -814,8 +829,8 @@ void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
     return;
   }
 
-  std::scoped_lock<std::shared_mutex, std::shared_mutex> lock(
-      cluster_mutex_, metrics_mutex_);
+  std::scoped_lock<std::shared_mutex, std::shared_mutex> lock(cluster_mutex_,
+                                                              metrics_mutex_);
 
   auto prefill_it = request_metrics_.find(request->routing.prefill_name);
   if (prefill_it == request_metrics_.end()) {
@@ -889,8 +904,8 @@ void InstanceMgr::update_request_metrics(std::shared_ptr<Request> request,
 
 bool InstanceMgr::select_instance_pair_on_slo(
     std::shared_ptr<Request> request) {
-  std::scoped_lock<std::shared_mutex, std::shared_mutex> lock(
-      cluster_mutex_, metrics_mutex_);
+  std::scoped_lock<std::shared_mutex, std::shared_mutex> lock(cluster_mutex_,
+                                                              metrics_mutex_);
   const bool has_unschedulable_instances = !suspect_instances_.empty();
 
   std::string min_prefill_instance;
@@ -1209,7 +1224,8 @@ void InstanceMgr::deregister_instance(
 
     if (!expected_incarnation_id.empty() &&
         it->second.incarnation_id != expected_incarnation_id) {
-      LOG(INFO) << "Skip deregistering stale incarnation, instance_name: " << name
+      LOG(INFO) << "Skip deregistering stale incarnation, instance_name: "
+                << name
                 << ", current incarnation_id: " << it->second.incarnation_id
                 << ", expected incarnation_id: " << expected_incarnation_id;
       return;
@@ -1409,6 +1425,50 @@ void InstanceMgr::remove_instance_from_index(const std::string& name,
     default:
       break;
   }
+}
+
+bool InstanceMgr::has_available_instances() const {
+  std::shared_lock<std::shared_mutex> lock(cluster_mutex_);
+
+  bool has_default = false;
+  bool has_prefill = false;
+  bool has_decode = false;
+  bool has_mix_as_prefill = false;
+  bool has_mix_as_decode = false;
+
+  for (const auto& [name, info] : instances_) {
+    if (!is_instance_schedulable(info)) continue;
+
+    switch (info.type) {
+      case InstanceType::DEFAULT:
+        has_default = true;
+        break;
+      case InstanceType::PREFILL:
+        has_prefill = true;
+        break;
+      case InstanceType::DECODE:
+        has_decode = true;
+        break;
+      case InstanceType::MIX:
+        if (info.current_type == InstanceType::PREFILL) {
+          has_mix_as_prefill = true;
+        } else if (info.current_type == InstanceType::DECODE) {
+          has_mix_as_decode = true;
+        }
+        break;
+      default:
+        break;
+    }
+
+    // Early exit: any satisfied condition is enough
+    if (has_default || (has_prefill && has_decode) ||
+        (has_mix_as_prefill && has_mix_as_decode)) {
+      return true;
+    }
+  }
+
+  return has_default || (has_prefill && has_decode) ||
+         (has_mix_as_prefill && has_mix_as_decode);
 }
 
 }  // namespace xllm_service

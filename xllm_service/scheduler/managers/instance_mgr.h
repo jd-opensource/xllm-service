@@ -82,8 +82,19 @@ class InstanceMgr final {
 
   void set_as_master();
 
+  // Returns true if at least one valid instance group is available:
+  // - a single DEFAULT instance, or
+  // - a PREFILL + DECODE pair, or
+  // - two MIX instances with complementary current_type (one PREFILL, one
+  // DECODE)
+  bool has_available_instances() const;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(InstanceMgr);
+
+  // Caller must hold cluster_mutex_.
+  bool can_route_prefill_without_decode_locked(
+      const std::string& prefill_name) const;
 
   void init();
 
@@ -159,7 +170,7 @@ class InstanceMgr final {
   std::shared_ptr<EtcdClient> etcd_client_;
 
   // L1 — cluster topology & channels
-  std::shared_mutex cluster_mutex_;
+  mutable std::shared_mutex cluster_mutex_;
   std::unordered_map<std::string, InstanceMetaInfo> instances_;
   struct SuspectInstanceInfo {
     std::string incarnation_id;

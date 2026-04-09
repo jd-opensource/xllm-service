@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "master.h"
 
+#include <chrono>
 #include <csignal>
 
 #include "common/global_gflags.h"
@@ -36,9 +37,13 @@ Master::Master(const Options& options) : options_(options) {
 Master::~Master() { stop(); }
 
 bool Master::start() {
-  // 1. start http server
-  http_server_thread_ =
-      std::make_unique<std::thread>([this]() { start_http_server(); });
+  if (!setup_http_server()) {
+    return false;
+  }
+
+  // 1. start readiness thread to manage http server lifecycle
+  readiness_thread_ = std::make_unique<std::thread>(
+      [this]() { manage_http_server_lifecycle(); });
 
   // 2. start rpc server
   rpc_server_thread_ =
@@ -48,8 +53,10 @@ bool Master::start() {
 }
 
 void Master::stop() {
-  if (http_server_thread_ && http_server_thread_->joinable()) {
-    http_server_thread_->join();
+  stopped_.store(true);
+
+  if (readiness_thread_ && readiness_thread_->joinable()) {
+    readiness_thread_->join();
   }
 
   if (rpc_server_thread_ && rpc_server_thread_->joinable()) {
@@ -57,7 +64,7 @@ void Master::stop() {
   }
 }
 
-bool Master::start_http_server() {
+bool Master::setup_http_server() {
   if (http_server_.AddService(http_service_.get(),
                               brpc::SERVER_DOESNT_OWN_SERVICE,
                               // for testing
@@ -71,34 +78,60 @@ bool Master::start_http_server() {
     return false;
   }
 
-  brpc::ServerOptions options;
-  options.idle_timeout_sec = options_.http_idle_timeout_s();
-  options.num_threads = options_.http_num_threads();
-  options.max_concurrency = options_.http_max_concurrency();
+  http_options_.idle_timeout_sec = options_.http_idle_timeout_s();
+  http_options_.num_threads = options_.http_num_threads();
+  http_options_.max_concurrency = options_.http_max_concurrency();
 
-  butil::EndPoint endpoint;
   if (!options_.server_host().empty()) {
     http_server_address_ =
         options_.server_host() + ":" + std::to_string(options_.http_port());
-    if (butil::str2endpoint(http_server_address_.c_str(), &endpoint) < 0) {
+    if (butil::str2endpoint(http_server_address_.c_str(), &http_endpoint_) <
+        0) {
       LOG(FATAL) << "Convert server_addr to endpoint failed: "
                  << http_server_address_;
       return false;
     }
   } else {
-    endpoint = butil::EndPoint(butil::IP_ANY, options_.http_port());
+    http_endpoint_ = butil::EndPoint(butil::IP_ANY, options_.http_port());
   }
 
-  if (http_server_.Start(endpoint, &options) != 0) {
-    LOG(FATAL) << "Failed to start http server on: " << endpoint;
-    return false;
-  }
-
-  LOG(INFO) << "Xllm http server started on: " << endpoint;
-
-  // Wait until Ctrl-C is pressed, then Stop() and Join() the server.
-  http_server_.RunUntilAskedToQuit();
   return true;
+}
+
+void Master::manage_http_server_lifecycle() {
+  bool http_running = false;
+  while (!stopped_.load()) {
+    bool has_instances = scheduler_->has_available_instances();
+
+    if (has_instances && !http_running) {
+      if (http_server_.Start(http_endpoint_, &http_options_) == 0) {
+        LOG(INFO) << "HTTP server started, instances available, endpoint: "
+                  << http_endpoint_;
+        http_running = true;
+      } else {
+        LOG(ERROR) << "Failed to start HTTP server on: " << http_endpoint_;
+      }
+    } else if (!has_instances && http_running) {
+      LOG(WARNING) << "No available instances, stopping HTTP server.";
+      http_server_.Stop(0);
+      http_server_.Join();
+      http_running = false;
+      LOG(INFO) << "HTTP server stopped, waiting for instances to recover.";
+    }
+
+    // Sleep in small increments to be responsive to `stopped_` signal.
+    const auto end_time =
+        std::chrono::steady_clock::now() +
+        std::chrono::seconds(FLAGS_readiness_check_interval_s);
+    while (!stopped_.load() && std::chrono::steady_clock::now() < end_time) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  }
+
+  if (http_running) {
+    http_server_.Stop(0);
+    http_server_.Join();
+  }
 }
 
 bool Master::start_rpc_server() {

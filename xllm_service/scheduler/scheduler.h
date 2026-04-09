@@ -53,6 +53,9 @@ class Scheduler final {
 
   void exited() { exited_ = true; }
 
+  // Returns true if at least one valid instance group is available.
+  bool has_available_instances() const;
+
   // register new requests from http service
   // keep http callback util request finished.
   // `handle_generation` will handle response with these callbacks.
