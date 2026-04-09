@@ -586,4 +586,8 @@ void Scheduler::update_token_latency_metrics(
   }
 }
 
+bool Scheduler::has_available_instances() const {
+  return instance_mgr_->has_available_instances();
+}
+
 }  // namespace xllm_service
