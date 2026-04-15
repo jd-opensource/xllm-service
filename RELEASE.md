@@ -1,3 +1,14 @@
+# Release xllm-service 0.9.1
+
+## **Major Features and Improvements**
+
+### Feature
+
+- Support etcd auth in etcd client via environment variables.
+- Support namespace prefix for etcd key.
+- Implement instance readiness gate for HTTP service.
+
+
 # Release xllm-service 0.9.0
 
 ## **Major Features and Improvements**
