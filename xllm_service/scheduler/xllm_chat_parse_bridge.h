@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "chat.pb.h"
 #include "common/types.h"
+#include <nlohmann/json.hpp>
 
 namespace xllm {
 class StreamOutputParser;
@@ -47,6 +48,10 @@ ResolvedChatParserFormats resolve_chat_parser_formats_with_xllm(
     const std::string& parser_preference = "",
     const std::string& reasoning_parser_preference = "");
 
+bool get_enable_thinking_from_request(
+    const nlohmann::json& chat_template_kwargs,
+    const std::string& reasoning_parser_format);
+
 std::shared_ptr<xllm::StreamOutputParser> create_stream_output_parser_with_xllm(
     const std::vector<JsonTool>& tools,
     const std::string& model,
@@ -61,6 +66,7 @@ ChatParseResult parse_chat_output_with_xllm(
     std::string finish_reason,
     const std::string& parser_preference = "",
     const std::string& reasoning_parser_preference = "",
+    bool force_reasoning = false,
     google::protobuf::Arena* arena = nullptr);
 
 }  // namespace xllm_service

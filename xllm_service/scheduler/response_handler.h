@@ -46,7 +46,8 @@ class ResponseHandler final {
       const std::vector<JsonTool>& tools,
       const std::string& model,
       const std::string& tool_call_parser = "",
-      const std::string& reasoning_parser = "");
+      const std::string& reasoning_parser = "",
+      bool force_reasoning = false);
 
   bool send_delta_to_client(
       std::shared_ptr<ChatCallData> call_data,
@@ -61,7 +62,8 @@ class ResponseHandler final {
                              const llm::RequestOutput& req_output,
                              const std::vector<JsonTool>& tools = {},
                              const std::string& tool_call_parser = "",
-                             const std::string& reasoning_parser = "");
+                             const std::string& reasoning_parser = "",
+                             bool force_reasoning = false);
 
   bool send_delta_to_client(std::shared_ptr<CompletionCallData> call_data,
                             bool include_usage,

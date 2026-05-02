@@ -21,6 +21,7 @@ limitations under the License.
 #include "loadbalance_policy/cache_aware_routing.h"
 #include "loadbalance_policy/round_robin.h"
 #include "loadbalance_policy/slo_aware_policy.h"
+#include "scheduler/xllm_chat_parse_bridge.h"
 #include "tokenizer/tokenizer_factory.h"
 
 namespace {
@@ -293,13 +294,18 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
                                         : request->tools);
     auto tool_call_parser_pref = options_.tool_call_parser();
     auto reasoning_parser_pref = options_.reasoning_parser();
+    const auto parser_formats = resolve_chat_parser_formats_with_xllm(
+        request->model, tool_call_parser_pref, reasoning_parser_pref);
+    const bool force_reasoning = get_enable_thinking_from_request(
+        request->chat_template_kwargs, parser_formats.reasoning_parser);
     std::shared_ptr<ChatStreamParseState> stream_state;
     if (request->stream) {
       stream_state = response_handler_.create_chat_stream_parse_state(
           tools_for_parse,
           request->model,
           tool_call_parser_pref,
-          reasoning_parser_pref);
+          reasoning_parser_pref,
+          force_reasoning);
     }
 
     request->call_data = call_data;
@@ -312,6 +318,7 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
          tools = std::move(tools_for_parse),
          tool_call_parser = std::move(tool_call_parser_pref),
          reasoning_parser = std::move(reasoning_parser_pref),
+         force_reasoning,
          stream_state = std::move(stream_state),
          service_request_id = request->service_request_id,
          created_time = absl::ToUnixSeconds(request->latest_generate_time)](
@@ -338,7 +345,8 @@ bool Scheduler::record_new_request(std::shared_ptr<ChatCallData> call_data,
                                                        req_output,
                                                        tools,
                                                        tool_call_parser,
-                                                       reasoning_parser);
+                                                       reasoning_parser,
+                                                       force_reasoning);
       }
       return true;
     };
