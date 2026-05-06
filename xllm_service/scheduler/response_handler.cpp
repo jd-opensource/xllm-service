@@ -191,14 +191,15 @@ ResponseHandler::create_chat_stream_parse_state(
     const std::vector<JsonTool>& tools,
     const std::string& model,
     const std::string& tool_call_parser,
-    const std::string& reasoning_parser) {
+    const std::string& reasoning_parser,
+    bool force_reasoning) {
   auto state = std::make_shared<ChatStreamParseState>();
   state->stream_parser =
       create_stream_output_parser_with_xllm(tools,
                                             model,
                                             tool_call_parser,
                                             reasoning_parser,
-                                            /*force_reasoning=*/false);
+                                            force_reasoning);
   return state;
 }
 
@@ -441,7 +442,8 @@ bool ResponseHandler::send_result_to_client(
     const llm::RequestOutput& req_output,
     const std::vector<JsonTool>& tools,
     const std::string& tool_call_parser,
-    const std::string& reasoning_parser) {
+    const std::string& reasoning_parser,
+    bool force_reasoning) {
   auto& response = call_data->response();
   auto& request_id = req_output.request_id;
   response.set_object("chat.completion");
@@ -488,6 +490,7 @@ bool ResponseHandler::send_result_to_client(
                                       output.finish_reason.value_or(""),
                                       tool_call_parser,
                                       reasoning_parser,
+                                      force_reasoning,
                                       response.GetArena());
       message->set_content(result.text);
       if (result.reasoning_content.has_value()) {

@@ -119,6 +119,29 @@ std::string resolve_reasoning_parser(
 }
 }  // namespace
 
+bool get_enable_thinking_from_request(
+    const nlohmann::json& chat_template_kwargs,
+    const std::string& reasoning_parser_format) {
+  bool default_value = !reasoning_parser_format.empty();
+  if (chat_template_kwargs.empty()) {
+    return default_value;
+  }
+
+  if (chat_template_kwargs.contains("enable_thinking") ||
+      chat_template_kwargs.contains("thinking")) {
+    auto get_bool_val = [&](const char* key) {
+      auto it = chat_template_kwargs.find(key);
+      if (it != chat_template_kwargs.end() && it->is_boolean()) {
+        return it->get<bool>();
+      }
+      return false;
+    };
+    return get_bool_val("enable_thinking") || get_bool_val("thinking");
+  }
+
+  return default_value;
+}
+
 ChatParseResult parse_chat_output_with_xllm(
     std::string text,
     const std::vector<JsonTool>& tools,
@@ -126,6 +149,7 @@ ChatParseResult parse_chat_output_with_xllm(
     std::string finish_reason,
     const std::string& parser_preference,
     const std::string& reasoning_parser_preference,
+    bool force_reasoning,
     google::protobuf::Arena* arena) {
   ChatParseResult result;
   result.text = std::move(text);
@@ -136,7 +160,8 @@ ChatParseResult parse_chat_output_with_xllm(
   if (!reasoning_parser_format.empty() && !result.text.empty()) {
     try {
       xllm::ReasoningParser reasoning_parser(reasoning_parser_format,
-                                             /*stream_reasoning=*/false);
+                                             /*stream_reasoning=*/false,
+                                             force_reasoning);
       auto reasoning_result = reasoning_parser.parse_non_stream(result.text);
       if (reasoning_result.normal_text.has_value()) {
         result.text = reasoning_result.normal_text.value();
