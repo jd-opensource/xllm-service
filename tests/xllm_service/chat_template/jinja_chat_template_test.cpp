@@ -88,6 +88,503 @@ TEST(JinjaChatTemplate, ApplyChatTemplateKwargs) {
   EXPECT_EQ(result.value(), "hello");
 }
 
+TEST(JinjaChatTemplate, SupportsUndefinedTestForOptionalKwargs) {
+  const std::string template_str =
+      "{% if enable_thinking is undefined or enable_thinking is true %}"
+      "thinking"
+      "{% else %}no_thinking{% endif %}"
+      "{{ messages[0]['content'] }}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = {{{"role", "user"}, {"content", "hello"}}};
+  const nlohmann::ordered_json tools = nlohmann::ordered_json::array();
+
+  const nlohmann::ordered_json empty_kwargs = nlohmann::json::object();
+  auto missing_value_result = template_.apply(messages, tools, empty_kwargs);
+  ASSERT_TRUE(missing_value_result.has_value());
+  EXPECT_EQ(missing_value_result.value(), "thinkinghello");
+
+  const nlohmann::ordered_json false_kwargs = {{"enable_thinking", false}};
+  auto false_value_result = template_.apply(messages, tools, false_kwargs);
+  ASSERT_TRUE(false_value_result.has_value());
+  EXPECT_EQ(false_value_result.value(), "no_thinkinghello");
+}
+
+TEST(JinjaChatTemplate, SupportsWhitespaceInUndefinedTests) {
+  const std::string template_str =
+      "{% if enable_thinking  is\nundefined %}undefined"
+      "{% elif enable_thinking is not\tundefined %}defined"
+      "{% else %}unexpected{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+
+  const nlohmann::ordered_json empty_kwargs = nlohmann::json::object();
+  auto missing_value_result = template_.apply(messages, tools, empty_kwargs);
+  ASSERT_TRUE(missing_value_result.has_value());
+  EXPECT_EQ(missing_value_result.value(), "undefined");
+
+  const nlohmann::ordered_json false_kwargs = {{"enable_thinking", false}};
+  auto false_value_result = template_.apply(messages, tools, false_kwargs);
+  ASSERT_TRUE(false_value_result.has_value());
+  EXPECT_EQ(false_value_result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, SupportsUndefinedTestAfterDelimiterInStringLiteral) {
+  const std::string template_str =
+      "{% if 'value%}' == 'value%}' and enable_thinking is undefined %}"
+      "undefined{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "undefined");
+}
+
+TEST(JinjaChatTemplate, SupportsPunctuationBeforeUndefinedTest) {
+  const std::string template_str =
+      "{% if (enable_thinking)is undefined %}missing"
+      "{% else %}unexpected{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+
+  const nlohmann::ordered_json empty_kwargs = nlohmann::json::object();
+  auto missing_result = template_.apply(messages, tools, empty_kwargs);
+  ASSERT_TRUE(missing_result.has_value());
+  EXPECT_EQ(missing_result.value(), "missing");
+}
+
+TEST(JinjaChatTemplate, PreservesNullInUndefinedTests) {
+  const std::string template_str =
+      "{% if enable_thinking is undefined %}missing"
+      "{% elif enable_thinking is not undefined %}defined"
+      "{% else %}unexpected{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json null_kwargs = {{"enable_thinking", nullptr}};
+  auto null_result = template_.apply(messages, tools, null_kwargs);
+  ASSERT_TRUE(null_result.has_value());
+  EXPECT_EQ(null_result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, PreservesUnaryNotPrecedenceInUndefinedTests) {
+  const std::string template_str =
+      "{% if not enable_thinking is undefined %}defined"
+      "{% else %}missing{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+
+  const nlohmann::ordered_json empty_kwargs = nlohmann::json::object();
+  auto missing_result = template_.apply(messages, tools, empty_kwargs);
+  ASSERT_TRUE(missing_result.has_value());
+  EXPECT_EQ(missing_result.value(), "missing");
+
+  const nlohmann::ordered_json null_kwargs = {{"enable_thinking", nullptr}};
+  auto null_result = template_.apply(messages, tools, null_kwargs);
+  ASSERT_TRUE(null_result.has_value());
+  EXPECT_EQ(null_result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, PreservesNestedNullInUndefinedTests) {
+  const std::string template_str =
+      "{% if options.enable_thinking is undefined %}missing"
+      "{% elif options.enable_thinking is not undefined %}defined"
+      "{% else %}unexpected{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json null_kwargs = {
+      {"options", {{"enable_thinking", nullptr}}}};
+  auto null_result = template_.apply(messages, tools, null_kwargs);
+  ASSERT_TRUE(null_result.has_value());
+  EXPECT_EQ(null_result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, PreservesLocalNullInUndefinedTests) {
+  const std::string template_str =
+      "{% set value = none %}"
+      "{% if value is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, PreservesWhitespaceControlledLocalNull) {
+  const std::string template_str =
+      "{% set value = none -%}"
+      "{% if value is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, PreservesWhitespaceControlAfterLocalNullInjection) {
+  const std::string template_str =
+      "{% set value = none -%}\n"
+      "{% if value is undefined %}missing{% else %}Hello{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "Hello");
+}
+
+TEST(JinjaChatTemplate, DoesNotTreatNoneLiteralAsUndefined) {
+  const std::string template_str =
+      "{% if none is undefined %}unexpected"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, DoesNotTreatUppercaseNoneLiteralAsUndefined) {
+  const std::string template_str =
+      "{% if None is undefined %}unexpected"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, SupportsUndefinedTestCallSyntax) {
+  const std::string template_str =
+      "{% if enable_thinking is undefined() %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "missing");
+}
+
+TEST(JinjaChatTemplate, RemovesPresenceAfterLocalBecomesUndefined) {
+  const std::string template_str =
+      "{% set value = none %}"
+      "{% set value = missing %}"
+      "{% if value is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "missing");
+}
+
+TEST(JinjaChatTemplate, PreservesNullAssignedFromContextPath) {
+  const std::string template_str =
+      "{% set value = source %}"
+      "{% if value is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = {{"source", nullptr}};
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, RemovesDescendantPresenceAfterLocalOverwrite) {
+  const std::string template_str =
+      "{% set options = {} %}"
+      "{% if options.flag is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = {{"options", {{"flag", nullptr}}}};
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "missing");
+}
+
+TEST(JinjaChatTemplate, PropagatesDescendantPresenceThroughLocalAlias) {
+  const std::string template_str =
+      "{% set alias = options %}"
+      "{% if alias.flag is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = {{"options", {{"flag", nullptr}}}};
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, PreservesUnderscoreBindingDuringPresenceTracking) {
+  const std::string template_str =
+      "{% set _ = 'visible' %}"
+      "{% set value = none %}"
+      "{{ _ }}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "visible");
+}
+
+TEST(JinjaChatTemplate, SupportsNestedBracesBeforeUndefinedTest) {
+  const std::string template_str = "{{ {\"a\": {}} or opt is undefined }}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "{'a': {}}");
+}
+
+TEST(JinjaChatTemplate, PreservesBinaryOperandInUndefinedTest) {
+  const std::string template_str =
+      "{% if 1 + value is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = {{"value", 2}};
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "defined");
+}
+
+TEST(JinjaChatTemplate, DoesNotConflateLiteralDotsInPresencePaths) {
+  const std::string template_str =
+      "{% if options.enable_thinking is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = {{"options", nlohmann::json::object()},
+                                         {"options.enable_thinking", false}};
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "missing");
+}
+
+TEST(JinjaChatTemplate, DoesNotTreatFilterNameAsContextPath) {
+  const std::string template_str =
+      "{% if value | default is undefined %}missing"
+      "{% else %}defined{% endif %}";
+
+  TokenizerArgs args;
+  args.chat_template(template_str);
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = nlohmann::json::array();
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = nlohmann::json::object();
+
+  auto result = template_.apply(messages, tools, kwargs);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), "missing");
+}
+
+TEST(JinjaChatTemplate, RejectsNonObjectChatTemplateKwargs) {
+  TokenizerArgs args;
+  args.chat_template("{{ messages[0]['content'] }}");
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = {{{"role", "user"}, {"content", "hello"}}};
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json invalid_kwargs = nlohmann::json::array();
+
+  auto result = template_.apply(messages, tools, invalid_kwargs);
+  EXPECT_FALSE(result.has_value());
+}
+
+TEST(JinjaChatTemplate, RejectsReservedChatTemplateKwargsKey) {
+  TokenizerArgs args;
+  args.chat_template("{{ messages[0]['content'] }}");
+  args.bos_token("");
+  args.eos_token("");
+  JinjaChatTemplate template_(args);
+
+  nlohmann::ordered_json messages = {{{"role", "user"}, {"content", "hello"}}};
+  const nlohmann::ordered_json tools = nlohmann::json::array();
+  const nlohmann::ordered_json kwargs = {
+      {"__xllm_chat_template_kwargs_presence", "user_value"}};
+
+  auto result = template_.apply(messages, tools, kwargs);
+  EXPECT_FALSE(result.has_value());
+}
+
 TEST(JinjaChatTemplate, MakesThinkingAndEffortAvailableInExtraContext) {
   TokenizerArgs args;
   args.chat_template(
